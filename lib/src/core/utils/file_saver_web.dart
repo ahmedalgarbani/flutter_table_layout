@@ -1,0 +1,15 @@
+import 'dart:html' as html;
+
+/// Saves/downloads files on Web using dart:html.
+Future<void> saveAndShareFile({
+  required List<int> bytes,
+  required String fileName,
+  required String mimeType,
+}) async {
+  final blob = html.Blob([bytes], mimeType);
+  final url = html.Url.createObjectUrlFromBlob(blob);
+  final anchor = html.AnchorElement(href: url)
+    ..setAttribute('download', fileName)
+    ..click();
+  html.Url.revokeObjectUrl(url);
+}

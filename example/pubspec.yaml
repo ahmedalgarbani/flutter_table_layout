@@ -1,0 +1,22 @@
+name: example
+description: "A beautiful showcase application for flutter_table_layout."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_table_layout:
+    path: ../
+  intl: ^0.20.2
+  flutter_localization: ^0.4.0
+
+  flutter_localizations: any
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
