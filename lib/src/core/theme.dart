@@ -89,12 +89,18 @@ class AdaptiveTableTheme {
     this.toolbarBackgroundColor,
     required this.headerBackgroundColor,
     required this.headerTextStyle,
-    this.headerPadding = const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+    this.headerPadding = const EdgeInsets.symmetric(
+      horizontal: 16.0,
+      vertical: 14.0,
+    ),
     required this.rowBackgroundColor,
     required this.alternateRowBackgroundColor,
     this.useAlternateRows = true,
     required this.rowTextStyle,
-    this.rowPadding = const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+    this.rowPadding = const EdgeInsets.symmetric(
+      horizontal: 16.0,
+      vertical: 12.0,
+    ),
     required this.rowHoverColor,
     required this.dividerColor,
     required this.footerBackgroundColor,
@@ -116,25 +122,28 @@ class AdaptiveTableTheme {
       cardBorder: Border.all(color: Colors.grey.shade200, width: 1.0),
       cardShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.04),
+          color: Colors.black.withValues(alpha: 0.04),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
       ],
       toolbarBackgroundColor: Colors.grey.shade50,
       headerBackgroundColor: Colors.grey.shade100,
-      headerTextStyle: theme.textTheme.titleSmall?.copyWith(
+      headerTextStyle:
+          theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
             color: Colors.grey.shade800,
           ) ??
           const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
       rowBackgroundColor: Colors.white,
       alternateRowBackgroundColor: Colors.grey.shade50,
-      rowTextStyle: theme.textTheme.bodyMedium ?? const TextStyle(color: Colors.black87),
+      rowTextStyle:
+          theme.textTheme.bodyMedium ?? const TextStyle(color: Colors.black87),
       rowHoverColor: Colors.blue.shade50.withOpacity(0.3),
       dividerColor: Colors.grey.shade200,
       footerBackgroundColor: Colors.white,
-      footerTextStyle: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600) ??
+      footerTextStyle:
+          theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600) ??
           const TextStyle(color: Colors.grey),
       actionIconColor: Colors.grey.shade700,
     );
@@ -156,19 +165,22 @@ class AdaptiveTableTheme {
       ],
       toolbarBackgroundColor: const Color(0xFF252525),
       headerBackgroundColor: const Color(0xFF2A2A2A),
-      headerTextStyle: theme.textTheme.titleSmall?.copyWith(
+      headerTextStyle:
+          theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
             color: Colors.grey.shade200,
           ) ??
           const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
       rowBackgroundColor: const Color(0xFF1E1E1E),
       alternateRowBackgroundColor: const Color(0xFF232323),
-      rowTextStyle: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade300) ??
+      rowTextStyle:
+          theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade300) ??
           const TextStyle(color: Colors.white70),
       rowHoverColor: Colors.blue.shade900.withOpacity(0.15),
       dividerColor: Colors.grey.shade800,
       footerBackgroundColor: const Color(0xFF1E1E1E),
-      footerTextStyle: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade400) ??
+      footerTextStyle:
+          theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade400) ??
           const TextStyle(color: Colors.grey),
       actionIconColor: Colors.grey.shade300,
       statusPositiveColor: const Color(0xFF4CAF50),
@@ -177,12 +189,22 @@ class AdaptiveTableTheme {
   }
 
   /// Factory for a beautiful glassmorphic layout.
-  factory AdaptiveTableTheme.glassmorphic(BuildContext context, {bool isDark = false}) {
+  factory AdaptiveTableTheme.glassmorphic(
+    BuildContext context, {
+    bool isDark = false,
+  }) {
     final theme = Theme.of(context);
     return AdaptiveTableTheme(
-      cardBackgroundColor: isDark ? Colors.black.withOpacity(0.3) : Colors.white.withOpacity(0.2),
+      cardBackgroundColor: isDark
+          ? Colors.black.withOpacity(0.3)
+          : Colors.white.withOpacity(0.2),
       borderRadius: BorderRadius.circular(16.0),
-      cardBorder: Border.all(color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.3), width: 1.5),
+      cardBorder: Border.all(
+        color: isDark
+            ? Colors.white.withOpacity(0.08)
+            : Colors.white.withOpacity(0.3),
+        width: 1.5,
+      ),
       cardShadow: [
         BoxShadow(
           color: Colors.black.withOpacity(0.08),
@@ -192,22 +214,34 @@ class AdaptiveTableTheme {
       ],
       enableGlassmorphism: true,
       toolbarBackgroundColor: Colors.transparent,
-      headerBackgroundColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.15),
-      headerTextStyle: theme.textTheme.titleSmall?.copyWith(
+      headerBackgroundColor: isDark
+          ? Colors.white.withOpacity(0.05)
+          : Colors.white.withOpacity(0.15),
+      headerTextStyle:
+          theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
             color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
           ) ??
-          TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+          TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
       rowBackgroundColor: Colors.transparent,
-      alternateRowBackgroundColor: isDark ? Colors.white.withOpacity(0.02) : Colors.white.withOpacity(0.05),
-      rowTextStyle: theme.textTheme.bodyMedium?.copyWith(
+      alternateRowBackgroundColor: isDark
+          ? Colors.white.withOpacity(0.02)
+          : Colors.white.withOpacity(0.05),
+      rowTextStyle:
+          theme.textTheme.bodyMedium?.copyWith(
             color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
           ) ??
           TextStyle(color: isDark ? Colors.white70 : Colors.black87),
       rowHoverColor: Colors.blue.shade50.withOpacity(isDark ? 0.1 : 0.25),
-      dividerColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.15),
+      dividerColor: isDark
+          ? Colors.white.withOpacity(0.05)
+          : Colors.white.withOpacity(0.15),
       footerBackgroundColor: Colors.transparent,
-      footerTextStyle: theme.textTheme.bodySmall?.copyWith(
+      footerTextStyle:
+          theme.textTheme.bodySmall?.copyWith(
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
           ) ??
           const TextStyle(color: Colors.grey),
@@ -216,9 +250,16 @@ class AdaptiveTableTheme {
   }
 
   /// Factory for a layout highlighting gradients.
-  factory AdaptiveTableTheme.gradient(BuildContext context, {bool isDark = false}) {
-    final lightGrad = LinearGradient(colors: [Colors.blue.shade700, Colors.indigo.shade800]);
-    final darkGrad = LinearGradient(colors: [Colors.teal.shade800, Colors.cyan.shade900]);
+  factory AdaptiveTableTheme.gradient(
+    BuildContext context, {
+    bool isDark = false,
+  }) {
+    final lightGrad = LinearGradient(
+      colors: [Colors.blue.shade700, Colors.indigo.shade800],
+    );
+    final darkGrad = LinearGradient(
+      colors: [Colors.teal.shade800, Colors.cyan.shade900],
+    );
 
     final activeGrad = isDark ? darkGrad : lightGrad;
 
@@ -226,7 +267,10 @@ class AdaptiveTableTheme {
     return AdaptiveTableTheme(
       cardBackgroundColor: isDark ? const Color(0xFF151515) : Colors.white,
       borderRadius: BorderRadius.circular(14.0),
-      cardBorder: Border.all(color: isDark ? Colors.grey.shade900 : Colors.grey.shade200, width: 1.0),
+      cardBorder: Border.all(
+        color: isDark ? Colors.grey.shade900 : Colors.grey.shade200,
+        width: 1.0,
+      ),
       cardShadow: [
         BoxShadow(
           color: Colors.black.withOpacity(0.06),
@@ -235,19 +279,31 @@ class AdaptiveTableTheme {
         ),
       ],
       headerGradient: activeGrad,
-      toolbarBackgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50,
+      toolbarBackgroundColor: isDark
+          ? const Color(0xFF1E1E1E)
+          : Colors.grey.shade50,
       headerBackgroundColor: Colors.blue.shade800, // overridden by gradient
-      headerTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+      headerTextStyle: const TextStyle(
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+        fontSize: 13,
+      ),
       rowBackgroundColor: isDark ? const Color(0xFF151515) : Colors.white,
-      alternateRowBackgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade50,
-      rowTextStyle: theme.textTheme.bodyMedium?.copyWith(
+      alternateRowBackgroundColor: isDark
+          ? const Color(0xFF1A1A1A)
+          : Colors.grey.shade50,
+      rowTextStyle:
+          theme.textTheme.bodyMedium?.copyWith(
             color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
           ) ??
           const TextStyle(color: Colors.black87),
       rowHoverColor: Colors.blue.shade50.withOpacity(0.25),
       dividerColor: isDark ? Colors.grey.shade900 : Colors.grey.shade200,
-      footerBackgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50,
-      footerTextStyle: theme.textTheme.bodySmall?.copyWith(
+      footerBackgroundColor: isDark
+          ? const Color(0xFF1E1E1E)
+          : Colors.grey.shade50,
+      footerTextStyle:
+          theme.textTheme.bodySmall?.copyWith(
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
           ) ??
           const TextStyle(color: Colors.grey),
@@ -261,7 +317,10 @@ class AdaptiveTableTheme {
     return AdaptiveTableTheme(
       cardBackgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       borderRadius: BorderRadius.circular(20.0),
-      cardBorder: Border.all(color: isDark ? Colors.grey.shade800 : Colors.blue.shade100, width: 1.5),
+      cardBorder: Border.all(
+        color: isDark ? Colors.grey.shade800 : Colors.blue.shade100,
+        width: 1.5,
+      ),
       cardMargin: const EdgeInsets.all(24.0),
       cardShadow: [
         BoxShadow(
@@ -270,17 +329,31 @@ class AdaptiveTableTheme {
           offset: const Offset(0, 6),
         ),
       ],
-      toolbarBackgroundColor: isDark ? const Color(0xFF222222) : Colors.blue.shade50.withOpacity(0.2),
-      headerBackgroundColor: isDark ? const Color(0xFF282828) : Colors.blue.shade50.withOpacity(0.4),
-      headerTextStyle: theme.textTheme.titleSmall?.copyWith(
+      toolbarBackgroundColor: isDark
+          ? const Color(0xFF222222)
+          : Colors.blue.shade50.withOpacity(0.2),
+      headerBackgroundColor: isDark
+          ? const Color(0xFF282828)
+          : Colors.blue.shade50.withOpacity(0.4),
+      headerTextStyle:
+          theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
             color: isDark ? Colors.grey.shade200 : Colors.blue.shade900,
           ) ??
-          TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.blue),
-      headerPadding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 18.0),
+          TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.blue,
+          ),
+      headerPadding: const EdgeInsets.symmetric(
+        horizontal: 20.0,
+        vertical: 18.0,
+      ),
       rowBackgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      alternateRowBackgroundColor: isDark ? const Color(0xFF232323) : Colors.blue.shade50.withOpacity(0.08),
-      rowTextStyle: theme.textTheme.bodyMedium?.copyWith(
+      alternateRowBackgroundColor: isDark
+          ? const Color(0xFF232323)
+          : Colors.blue.shade50.withOpacity(0.08),
+      rowTextStyle:
+          theme.textTheme.bodyMedium?.copyWith(
             color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
           ) ??
           const TextStyle(color: Colors.black87),
@@ -288,7 +361,8 @@ class AdaptiveTableTheme {
       rowHoverColor: Colors.blue.shade50.withOpacity(0.3),
       dividerColor: isDark ? Colors.grey.shade800 : Colors.blue.shade50,
       footerBackgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      footerTextStyle: theme.textTheme.bodySmall?.copyWith(
+      footerTextStyle:
+          theme.textTheme.bodySmall?.copyWith(
             color: isDark ? Colors.grey.shade400 : Colors.blue.shade700,
           ) ??
           const TextStyle(color: Colors.grey),

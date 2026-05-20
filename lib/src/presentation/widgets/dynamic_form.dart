@@ -122,7 +122,7 @@ class _DynamicFormState extends State<DynamicForm> {
 
   @override
   Widget build(BuildContext context) {
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    // final isRtl = Directionality.of(context) == TextDirection.rtl;
 
     return Form(
       key: _formKey,
