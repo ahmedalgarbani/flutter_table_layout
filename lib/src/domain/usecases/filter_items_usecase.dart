@@ -49,7 +49,7 @@ class FilterItemsUseCase {
 
     // 3. Global Search Filtering
     if (state.searchQuery.trim().isNotEmpty) {
-      final query = state.searchQuery.toLowerCase().trim();
+      // final query = state.searchQuery.toLowerCase().trim();
       result = result.where((item) {
         // Search through the values provided by column definitions
         for (final col in columns) {
