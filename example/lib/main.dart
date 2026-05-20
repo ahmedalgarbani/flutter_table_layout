@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter_table_layout/flutter_table_layout.dart';
 
 void main() {
@@ -16,24 +16,17 @@ class ShowcaseApp extends StatefulWidget {
 
 class _ShowcaseAppState extends State<ShowcaseApp> {
   ThemeMode _themeMode = ThemeMode.light;
-  Locale _locale = const Locale(
-    'ar',
-    'YE',
-  ); // Default to Arabic RTL as in images
+  Locale _locale = const Locale('ar', 'YE'); // Default to Arabic RTL as in screenshots
 
   void _toggleTheme() {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.light
-          ? ThemeMode.dark
-          : ThemeMode.light;
+      _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
     });
   }
 
   void _toggleLocale() {
     setState(() {
-      _locale = _locale.languageCode == 'ar'
-          ? const Locale('en', 'US')
-          : const Locale('ar', 'YE');
+      _locale = _locale.languageCode == 'ar' ? const Locale('en', 'US') : const Locale('ar', 'YE');
     });
   }
 
@@ -71,6 +64,13 @@ class _ShowcaseAppState extends State<ShowcaseApp> {
   }
 }
 
+enum DemoThemeStyle {
+  modern,
+  glassmorphic,
+  gradient,
+  cozy,
+}
+
 class DashboardHome extends StatefulWidget {
   final ThemeMode themeMode;
   final VoidCallback onToggleTheme;
@@ -87,9 +87,9 @@ class DashboardHome extends StatefulWidget {
   State<DashboardHome> createState() => _DashboardHomeState();
 }
 
-class _DashboardHomeState extends State<DashboardHome>
-    with SingleTickerProviderStateMixin {
+class _DashboardHomeState extends State<DashboardHome> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  DemoThemeStyle _activeStyle = DemoThemeStyle.modern;
 
   // --- Mock Datasets ---
   late List<AccountTransaction> _transactions;
@@ -109,22 +109,54 @@ class _DashboardHomeState extends State<DashboardHome>
     super.dispose();
   }
 
+  AdaptiveTableTheme _resolveTheme(BuildContext context) {
+    final isDark = widget.themeMode == ThemeMode.dark;
+    return switch (_activeStyle) {
+      DemoThemeStyle.glassmorphic => AdaptiveTableTheme.glassmorphic(context, isDark: isDark),
+      DemoThemeStyle.gradient => AdaptiveTableTheme.gradient(context, isDark: isDark),
+      DemoThemeStyle.cozy => AdaptiveTableTheme.cozy(context, isDark: isDark),
+      _ => isDark ? AdaptiveTableTheme.dark(context) : AdaptiveTableTheme.light(context),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isRtl = Directionality.of(context) == TextDirection.RTL;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          isRtl ? 'لوحة تحكم الجداول التفاعلية' : 'Adaptive Tables Dashboard',
-        ),
+        title: Text(isRtl ? 'لوحة تحكم الجداول التفاعلية' : 'Adaptive Tables Dashboard'),
         actions: [
+          // Theme preset selector
+          PopupMenuButton<DemoThemeStyle>(
+            icon: const Icon(Icons.palette_outlined),
+            tooltip: isRtl ? 'ستايل الجدول' : 'Table Style',
+            onSelected: (style) {
+              setState(() {
+                _activeStyle = style;
+              });
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: DemoThemeStyle.modern,
+                child: Text(isRtl ? 'ستايل عصري (افتراضي)' : 'Modern Style (Default)'),
+              ),
+              PopupMenuItem(
+                value: DemoThemeStyle.glassmorphic,
+                child: Text(isRtl ? 'تأثير زجاجي (Glassmorphism)' : 'Glassmorphism'),
+              ),
+              PopupMenuItem(
+                value: DemoThemeStyle.gradient,
+                child: Text(isRtl ? 'ستايل متدرج (Gradients)' : 'Gradient Accents'),
+              ),
+              PopupMenuItem(
+                value: DemoThemeStyle.cozy,
+                child: Text(isRtl ? 'ستايل مريح (Cozy Spaced)' : 'Cozy Spacing'),
+              ),
+            ],
+          ),
           IconButton(
-            icon: Icon(
-              widget.themeMode == ThemeMode.light
-                  ? Icons.dark_mode
-                  : Icons.light_mode,
-            ),
+            icon: Icon(widget.themeMode == ThemeMode.light ? Icons.dark_mode : Icons.light_mode),
             onPressed: widget.onToggleTheme,
           ),
           TextButton.icon(
@@ -143,15 +175,18 @@ class _DashboardHomeState extends State<DashboardHome>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [_buildAccountDetailsTab(isRtl), _buildCurrenciesTab(isRtl)],
+        children: [
+          _buildAccountDetailsTab(isRtl),
+          _buildCurrenciesTab(isRtl),
+        ],
       ),
     );
   }
 
-  // --- View: Account Details (Image 1 Layout) ---
+  // --- View: Account Details ---
 
   Widget _buildAccountDetailsTab(bool isRtl) {
-    final textTheme = Theme.of(context).textTheme;
+    final currentTheme = _resolveTheme(context);
 
     // Define table columns
     final tableColumns = [
@@ -254,9 +289,7 @@ class _DashboardHomeState extends State<DashboardHome>
         children: [
           AdaptiveTableLayout<AccountTransaction>(
             title: isRtl ? 'تفاصيل الحساب' : 'Account Details',
-            subtitle: isRtl
-                ? 'كشف حركة حساب العملات والمدفوعات'
-                : 'Statement of multi-currency transactions',
+            subtitle: isRtl ? 'كشف حركة حساب العملات والمدفوعات' : 'Statement of multi-currency transactions',
             titleIcon: Icon(
               Icons.account_balance_wallet,
               color: Colors.blue.shade800,
@@ -273,11 +306,7 @@ class _DashboardHomeState extends State<DashboardHome>
             onQueryPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(
-                    isRtl
-                        ? 'تم تطبيق من تصفية التاريخ'
-                        : 'Date filter queried successfully!',
-                  ),
+                  content: Text(isRtl ? 'تم تطبيق تصفية التاريخ' : 'Date filter queried successfully!'),
                   duration: const Duration(seconds: 1),
                 ),
               );
@@ -287,10 +316,8 @@ class _DashboardHomeState extends State<DashboardHome>
                 _transactions = _generateTransactions();
               });
             },
-            theme: widget.themeMode == ThemeMode.light
-                ? AdaptiveTableTheme.light(context)
-                : AdaptiveTableTheme.dark(context),
-            // Custom summary aggregate row (Image 1 Bottom banner)
+            onAddNewPressed: () => _addNewTransaction(isRtl, tableColumns, currentTheme),
+            theme: currentTheme,
             summaryBuilder: (context, visibleItems) {
               final count = visibleItems.length;
               double totalDeposit = 0;
@@ -309,33 +336,22 @@ class _DashboardHomeState extends State<DashboardHome>
                 children: [
                   Text(
                     isRtl ? '# العدد: $count' : '# Count: $count',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   Wrap(
                     spacing: 16,
                     children: [
                       Text(
                         isRtl
-                            ? 'إجمالي العمليات (YER): له: ${NumberFormat('#,##0.00').format(totalDeposit)}'
-                            : 'Operations YER: Deposit: ${NumberFormat('#,##0.00').format(totalDeposit)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green.shade700,
-                          fontSize: 13,
-                        ),
+                            ? 'له (YER): ${NumberFormat('#,##0.00').format(totalDeposit)}'
+                            : 'Deposit (YER): ${NumberFormat('#,##0.00').format(totalDeposit)}',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700, fontSize: 13),
                       ),
                       Text(
                         isRtl
-                            ? 'عليه: ${NumberFormat('#,##0.00').format(totalWithdraw)}'
-                            : 'Withdraw: ${NumberFormat('#,##0.00').format(totalWithdraw)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red.shade700,
-                          fontSize: 13,
-                        ),
+                            ? 'عليه (YER): ${NumberFormat('#,##0.00').format(totalWithdraw)}'
+                            : 'Withdraw (YER): ${NumberFormat('#,##0.00').format(totalWithdraw)}',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade700, fontSize: 13),
                       ),
                     ],
                   ),
@@ -348,11 +364,14 @@ class _DashboardHomeState extends State<DashboardHome>
     );
   }
 
-  // --- View: Currencies Grid (Image 2 Layout) ---
+  // --- View: Currencies Grid ---
 
   Widget _buildCurrenciesTab(bool isRtl) {
+    final currentTheme = _resolveTheme(context);
+
     // Define columns
-    final tableColumns = [
+    late final List<AdaptiveTableColumn<Currency>> tableColumns;
+    tableColumns = [
       AdaptiveTableColumn<Currency>(
         id: 'id',
         title: isRtl ? 'الرقم' : 'ID',
@@ -381,11 +400,7 @@ class _DashboardHomeState extends State<DashboardHome>
           ),
           child: Text(
             item.code,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
-              fontSize: 12,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue, fontSize: 12),
           ),
         ),
       ),
@@ -420,8 +435,7 @@ class _DashboardHomeState extends State<DashboardHome>
         fieldName: 'minRate',
         width: 110,
         alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) =>
-            Text(NumberFormat('#,##0.00').format(item.minRate)),
+        cellBuilder: (context, item) => Text(NumberFormat('#,##0.00').format(item.minRate)),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'maxRate',
@@ -429,8 +443,7 @@ class _DashboardHomeState extends State<DashboardHome>
         fieldName: 'maxRate',
         width: 110,
         alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) =>
-            Text(NumberFormat('#,##0.00').format(item.maxRate)),
+        cellBuilder: (context, item) => Text(NumberFormat('#,##0.00').format(item.maxRate)),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'status',
@@ -464,7 +477,7 @@ class _DashboardHomeState extends State<DashboardHome>
                 icon: const Icon(Icons.edit, size: 18, color: Colors.blue),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: () => _editCurrency(item),
+                onPressed: () => _editCurrency(isRtl, item, tableColumns, currentTheme),
               ),
               const SizedBox(width: 8),
               IconButton(
@@ -497,9 +510,7 @@ class _DashboardHomeState extends State<DashboardHome>
         children: [
           AdaptiveTableLayout<Currency>(
             title: isRtl ? 'العملات' : 'Currencies',
-            subtitle: isRtl
-                ? 'قائمة العملات المتاحة وأسعار صرفها'
-                : 'List of currencies and their exchange rates',
+            subtitle: isRtl ? 'قائمة العملات المتاحة وأسعار صرفها' : 'List of currencies and their exchange rates',
             titleIcon: Icon(Icons.monetization_on, color: Colors.teal.shade700),
             items: _currencies,
             columns: tableColumns,
@@ -511,57 +522,164 @@ class _DashboardHomeState extends State<DashboardHome>
                 _currencies = _generateCurrencies();
               });
             },
-            onAddNewPressed: () {
-              _addNewCurrency();
-            },
-            theme: widget.themeMode == ThemeMode.light
-                ? AdaptiveTableTheme.light(context)
-                : AdaptiveTableTheme.dark(context),
+            onAddNewPressed: () => _addNewCurrency(isRtl, tableColumns, currentTheme),
+            theme: currentTheme,
           ),
         ],
       ),
     );
   }
 
-  // --- Action Handlers ---
+  // --- Action Handlers (Dynamic Forms) ---
 
-  void _editCurrency(Currency item) {
-    ScaffoldMessenger.of(
+  void _addNewTransaction(
+    bool isRtl,
+    List<AdaptiveTableColumn<AccountTransaction>> columns,
+    AdaptiveTableTheme theme,
+  ) {
+    // Generate dynamic form schema
+    final fields = DynamicFormField.detectFromColumns(
+      columns,
+      dropdownItems: {
+        'currency': ['YER', 'SAR', 'USD'],
+      },
+    );
+
+    DynamicFormDialog.show(
       context,
-    ).showSnackBar(SnackBar(content: Text('Edit currency: ${item.name}')));
+      title: isRtl ? 'إضافة عملية مالية جديدة' : 'Add New Transaction',
+      fields: fields,
+      theme: theme,
+      submitLabel: isRtl ? 'إرسال' : 'Send',
+      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
+      onSubmitted: (values) {
+        final nextId = _transactions.map((t) => t.id).fold(0, (max, id) => id > max ? id : max) + 1;
+        setState(() {
+          _transactions.add(
+            AccountTransaction(
+              id: nextId,
+              date: values['date'] as DateTime? ?? DateTime.now(),
+              amount: (values['amount'] as num?)?.toDouble() ?? 0.0,
+              currency: values['currency']?.toString() ?? 'YER',
+              baseEquivalent: (values['baseEquivalent'] as num?)?.toDouble() ?? 0.0,
+              details: values['details']?.toString() ?? '',
+              isDeposit: values['status'] == true,
+            ),
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isRtl ? 'تم إضافة العملية بنجاح!' : 'Transaction added successfully!')),
+        );
+      },
+    );
+  }
+
+  void _addNewCurrency(
+    bool isRtl,
+    List<AdaptiveTableColumn<Currency>> columns,
+    AdaptiveTableTheme theme,
+  ) {
+    final fields = DynamicFormField.detectFromColumns(
+      columns,
+      dropdownItems: {
+        'subunit': ['فلوس', 'هللة', 'سنت'],
+      },
+    );
+
+    DynamicFormDialog.show(
+      context,
+      title: isRtl ? 'إضافة عملة جديدة' : 'Add New Currency',
+      fields: fields,
+      theme: theme,
+      submitLabel: isRtl ? 'إرسال' : 'Send',
+      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
+      onSubmitted: (values) {
+        final nextId = _currencies.map((c) => c.id).fold(0, (max, id) => id > max ? id : max) + 1;
+        setState(() {
+          _currencies.add(
+            Currency(
+              id: nextId,
+              name: values['name']?.toString() ?? 'New Currency',
+              code: values['code']?.toString() ?? 'NEW',
+              symbol: values['symbol']?.toString() ?? 'N',
+              subunit: values['subunit']?.toString() ?? 'cent',
+              rate: (values['rate'] as num?)?.toDouble() ?? 1.0,
+              minRate: (values['minRate'] as num?)?.toDouble() ?? 1.0,
+              maxRate: (values['maxRate'] as num?)?.toDouble() ?? 1.0,
+              isActive: values['status'] == true,
+            ),
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isRtl ? 'تم إضافة العملة بنجاح!' : 'Currency added successfully!')),
+        );
+      },
+    );
+  }
+
+  void _editCurrency(
+    bool isRtl,
+    Currency item,
+    List<AdaptiveTableColumn<Currency>> columns,
+    AdaptiveTableTheme theme,
+  ) {
+    // Fill initial values for editing
+    final fields = DynamicFormField.detectFromColumns(
+      columns,
+      dropdownItems: {
+        'subunit': ['فلوس', 'هللة', 'سنت'],
+      },
+      initialValues: {
+        'id': item.id,
+        'name': item.name,
+        'code': item.code,
+        'symbol': item.symbol,
+        'subunit': item.subunit,
+        'rate': item.rate,
+        'minRate': item.minRate,
+        'maxRate': item.maxRate,
+        'status': item.isActive,
+      },
+    );
+
+    DynamicFormDialog.show(
+      context,
+      title: isRtl ? 'تعديل العملة' : 'Edit Currency',
+      fields: fields,
+      theme: theme,
+      submitLabel: isRtl ? 'حفظ' : 'Save',
+      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
+      onSubmitted: (values) {
+        setState(() {
+          final index = _currencies.indexWhere((c) => c.id == item.id);
+          if (index != -1) {
+            _currencies[index] = Currency(
+              id: item.id,
+              name: values['name']?.toString() ?? item.name,
+              code: values['code']?.toString() ?? item.code,
+              symbol: values['symbol']?.toString() ?? item.symbol,
+              subunit: values['subunit']?.toString() ?? item.subunit,
+              rate: (values['rate'] as num?)?.toDouble() ?? item.rate,
+              minRate: (values['minRate'] as num?)?.toDouble() ?? item.minRate,
+              maxRate: (values['maxRate'] as num?)?.toDouble() ?? item.maxRate,
+              isActive: values['status'] == true,
+            );
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isRtl ? 'تم حفظ التعديلات!' : 'Currency updated successfully!')),
+        );
+      },
+    );
   }
 
   void _deleteCurrency(Currency item) {
     setState(() {
       _currencies.removeWhere((c) => c.id == item.id);
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Deleted currency: ${item.name}')));
-  }
-
-  void _addNewCurrency() {
-    final nextId =
-        _currencies.map((c) => c.id).fold(0, (max, id) => id > max ? id : max) +
-        1;
-    setState(() {
-      _currencies.add(
-        Currency(
-          id: nextId,
-          name: 'New Currency $nextId',
-          code: 'NEW',
-          symbol: 'N',
-          subunit: 'cent',
-          rate: 1.0,
-          minRate: 1.0,
-          maxRate: 1.0,
-          isActive: true,
-        ),
-      );
-    });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Added new currency ID: $nextId')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Deleted currency: ${item.name}')),
+    );
   }
 
   // --- Data Generators ---
@@ -650,7 +768,7 @@ class _DashboardHomeState extends State<DashboardHome>
         name: 'ريال يمني',
         code: 'YER',
         symbol: 'ر.ي',
-        subunit: 'فلس',
+        subunit: 'فلوس',
         rate: 1.0,
         minRate: 1.0,
         maxRate: 1.0,
@@ -662,9 +780,9 @@ class _DashboardHomeState extends State<DashboardHome>
         code: 'SAR',
         symbol: 'ر.س',
         subunit: 'هللة',
-        rate: 0.0,
-        minRate: 0.0,
-        maxRate: 0.0,
+        rate: 250.0,
+        minRate: 248.0,
+        maxRate: 252.0,
         isActive: true,
       ),
       Currency(
@@ -673,20 +791,20 @@ class _DashboardHomeState extends State<DashboardHome>
         code: 'USD',
         symbol: '\$',
         subunit: 'سنت',
-        rate: 0.0,
-        minRate: 0.0,
-        maxRate: 0.0,
+        rate: 930.0,
+        minRate: 928.0,
+        maxRate: 935.0,
         isActive: true,
       ),
       Currency(
         id: 80,
-        name: 'sdfsd',
-        code: 'sdfs',
-        symbol: 'sdfsd',
-        subunit: 'sdfds',
-        rate: 500.0,
-        minRate: 520.0,
-        maxRate: 530.0,
+        name: 'يورو أوروبي',
+        code: 'EUR',
+        symbol: '€',
+        subunit: 'سنت',
+        rate: 1010.0,
+        minRate: 1000.0,
+        maxRate: 1020.0,
         isActive: true,
       ),
     ];

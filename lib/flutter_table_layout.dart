@@ -10,3 +10,4 @@ export 'src/data/exporters/pdf_exporter.dart';
 export 'src/data/exporters/excel_exporter.dart';
 export 'src/data/exporters/word_exporter.dart';
 export 'src/core/utils/file_saver.dart';
+export 'src/presentation/widgets/dynamic_form.dart';

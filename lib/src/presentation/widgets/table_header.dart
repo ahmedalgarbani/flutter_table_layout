@@ -53,7 +53,8 @@ class TableHeader<T> extends StatelessWidget {
 
         return Container(
           decoration: BoxDecoration(
-            color: theme.toolbarBackgroundColor ?? theme.cardBackgroundColor,
+            color: theme.headerGradient != null ? null : (theme.toolbarBackgroundColor ?? theme.cardBackgroundColor),
+            gradient: theme.headerGradient,
             border: Border(
               bottom: BorderSide(color: theme.dividerColor, width: 1.0),
             ),

@@ -47,7 +47,8 @@ class TableFooter<T> extends StatelessWidget {
             if (showSummary && summaryBuilder != null && items.isNotEmpty)
               Container(
                 decoration: BoxDecoration(
-                  color: theme.headerBackgroundColor.withOpacity(0.4),
+                  color: theme.headerGradient != null ? null : theme.headerBackgroundColor.withOpacity(0.4),
+                  gradient: theme.headerGradient,
                   border: Border(
                     top: BorderSide(color: theme.dividerColor, width: 1),
                   ),
@@ -63,7 +64,8 @@ class TableFooter<T> extends StatelessWidget {
             if (showPagination)
               Container(
                 decoration: BoxDecoration(
-                  color: theme.footerBackgroundColor,
+                  color: theme.footerGradient != null ? null : theme.footerBackgroundColor,
+                  gradient: theme.footerGradient,
                   border: Border(
                     top: BorderSide(color: theme.dividerColor, width: 1.0),
                   ),

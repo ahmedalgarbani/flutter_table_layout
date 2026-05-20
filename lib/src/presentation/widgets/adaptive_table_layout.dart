@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
@@ -218,6 +219,71 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
   Widget build(BuildContext context) {
     final effectiveTheme = widget.theme ?? AdaptiveTableTheme.light(context);
 
+    Widget tableBody = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 1. Top Header Bar
+        TableHeader<T>(
+          title: widget.title,
+          subtitle: widget.subtitle,
+          titleIcon: widget.titleIcon,
+          onRefreshPressed: widget.onRefreshPressed,
+          onAddNewPressed: widget.onAddNewPressed,
+          columns: widget.columns,
+          valueProviders: widget.valueProviders,
+          showExport: widget.showExport,
+          showPrint: widget.showPrint,
+          showColumnsToggle: widget.showColumnsToggle,
+          theme: effectiveTheme,
+        ),
+
+        // 2. Filter Bar
+        TableFilterBar<T>(
+          showSearch: widget.showSearch,
+          customFilters: widget.customFilters,
+          searchHint: widget.searchHint,
+          dateFromLabel: widget.dateFromLabel,
+          dateToLabel: widget.dateToLabel,
+          queryButtonLabel: widget.queryButtonLabel,
+          onQueryPressed: widget.onQueryPressed,
+          theme: effectiveTheme,
+        ),
+
+        // 3. Main Data Content
+        TableContent<T>(
+          columns: widget.columns,
+          valueProviders: widget.valueProviders,
+          showSelection: widget.showSelection,
+          emptyWidget: widget.emptyWidget,
+          loadingWidget: widget.loadingWidget,
+          minDesktopWidth: widget.minDesktopWidth,
+          onRowTap: widget.onRowTap,
+          expandedRowBuilder: widget.expandedRowBuilder,
+          theme: effectiveTheme,
+        ),
+
+        // 4. Footer Pagination & Summaries
+        TableFooter<T>(
+          summaryBuilder: widget.summaryBuilder,
+          showPagination: widget.showPagination,
+          showSummary: widget.showSummary,
+          pageSizes: widget.pageSizes,
+          theme: effectiveTheme,
+        ),
+      ],
+    );
+
+    if (effectiveTheme.enableGlassmorphism) {
+      tableBody = ClipRRect(
+        borderRadius: effectiveTheme.borderRadius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
+          child: tableBody,
+        ),
+      );
+    }
+
     return BlocProvider<TableCubit<T>>.value(
       value: _cubit,
       child: Container(
@@ -230,60 +296,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           boxShadow: effectiveTheme.cardShadow,
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 1. Top Header Bar
-            TableHeader<T>(
-              title: widget.title,
-              subtitle: widget.subtitle,
-              titleIcon: widget.titleIcon,
-              onRefreshPressed: widget.onRefreshPressed,
-              onAddNewPressed: widget.onAddNewPressed,
-              columns: widget.columns,
-              valueProviders: widget.valueProviders,
-              showExport: widget.showExport,
-              showPrint: widget.showPrint,
-              showColumnsToggle: widget.showColumnsToggle,
-              theme: effectiveTheme,
-            ),
-
-            // 2. Filter Bar
-            TableFilterBar<T>(
-              showSearch: widget.showSearch,
-              customFilters: widget.customFilters,
-              searchHint: widget.searchHint,
-              dateFromLabel: widget.dateFromLabel,
-              dateToLabel: widget.dateToLabel,
-              queryButtonLabel: widget.queryButtonLabel,
-              onQueryPressed: widget.onQueryPressed,
-              theme: effectiveTheme,
-            ),
-
-            // 3. Main Data Content
-            TableContent<T>(
-              columns: widget.columns,
-              valueProviders: widget.valueProviders,
-              showSelection: widget.showSelection,
-              emptyWidget: widget.emptyWidget,
-              loadingWidget: widget.loadingWidget,
-              minDesktopWidth: widget.minDesktopWidth,
-              onRowTap: widget.onRowTap,
-              expandedRowBuilder: widget.expandedRowBuilder,
-              theme: effectiveTheme,
-            ),
-
-            // 4. Footer Pagination & Summaries
-            TableFooter<T>(
-              summaryBuilder: widget.summaryBuilder,
-              showPagination: widget.showPagination,
-              showSummary: widget.showSummary,
-              pageSizes: widget.pageSizes,
-              theme: effectiveTheme,
-            ),
-          ],
-        ),
+        child: tableBody,
       ),
     );
   }
