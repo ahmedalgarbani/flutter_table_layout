@@ -1,8 +1,11 @@
 /// Platform saver stub.
-Future<void> saveAndShareFile({
+///
+/// Returns the saved file path (desktop), the file name (web / share sheet),
+/// or `null` when nothing was written.
+Future<String?> saveAndShareFile({
   required List<int> bytes,
   required String fileName,
   required String mimeType,
 }) async {
-  throw UnimplementedError('Unsupported platform');
+  throw UnsupportedError('Saving files is not supported on this platform.');
 }

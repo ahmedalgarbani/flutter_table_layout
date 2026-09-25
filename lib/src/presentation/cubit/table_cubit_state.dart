@@ -30,14 +30,20 @@ class TableLoaded<T> extends TableCubitState<T> {
   /// Total item count post-filtering (used to calculate pages).
   final int totalCount;
 
+  /// Number of pages (always at least 1).
+  final int totalPages;
+
   /// Current search, sort, and pagination state.
   final TableStateModel tableState;
 
-  /// IDs/Indices of selected items.
+  /// Selected items (a subset of [originalItems]).
   final List<T> selectedItems;
 
   /// IDs of columns hidden by the user.
   final List<String> hiddenColumnIds;
+
+  /// Rows whose details (`expandedRowBuilder`) are currently open.
+  final List<T> expandedItems;
 
   const TableLoaded({
     required this.originalItems,
@@ -45,9 +51,26 @@ class TableLoaded<T> extends TableCubitState<T> {
     required this.paginatedItems,
     required this.totalCount,
     required this.tableState,
+    int? totalPages,
     this.selectedItems = const [],
     this.hiddenColumnIds = const [],
-  });
+    this.expandedItems = const [],
+  }) : totalPages = totalPages ?? 1;
+
+  /// Whether every filtered row is selected.
+  bool get isAllSelected =>
+      filteredAndSortedItems.isNotEmpty &&
+      filteredAndSortedItems.every(selectedItems.toSet().contains);
+
+  /// `true` = all filtered rows selected, `false` = none, `null` = some.
+  bool? get selectAllValue {
+    if (selectedItems.isEmpty) return false;
+    final selected = selectedItems.toSet();
+    final count = filteredAndSortedItems.where(selected.contains).length;
+    if (count == 0) return false;
+    if (count == filteredAndSortedItems.length) return true;
+    return null;
+  }
 
   /// Copy helper to transition states.
   TableLoaded<T> copyWith({
@@ -55,9 +78,11 @@ class TableLoaded<T> extends TableCubitState<T> {
     List<T>? filteredAndSortedItems,
     List<T>? paginatedItems,
     int? totalCount,
+    int? totalPages,
     TableStateModel? tableState,
     List<T>? selectedItems,
     List<String>? hiddenColumnIds,
+    List<T>? expandedItems,
   }) {
     return TableLoaded<T>(
       originalItems: originalItems ?? this.originalItems,
@@ -65,15 +90,21 @@ class TableLoaded<T> extends TableCubitState<T> {
           filteredAndSortedItems ?? this.filteredAndSortedItems,
       paginatedItems: paginatedItems ?? this.paginatedItems,
       totalCount: totalCount ?? this.totalCount,
+      totalPages: totalPages ?? this.totalPages,
       tableState: tableState ?? this.tableState,
       selectedItems: selectedItems ?? this.selectedItems,
       hiddenColumnIds: hiddenColumnIds ?? this.hiddenColumnIds,
+      expandedItems: expandedItems ?? this.expandedItems,
     );
   }
 }
 
-/// State representation when an operation throws an exception.
+/// State representation when an operation throws an exception
+/// (e.g. a `valueProvider` or `customFilterMatcher` threw).
 class TableError<T> extends TableCubitState<T> {
   final String errorMessage;
-  const TableError(this.errorMessage);
+  final Object? error;
+  final StackTrace? stackTrace;
+
+  const TableError(this.errorMessage, {this.error, this.stackTrace});
 }

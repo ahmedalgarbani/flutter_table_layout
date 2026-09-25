@@ -1,26 +1,57 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+
+import '../../core/labels.dart';
 import '../../core/theme.dart';
 import 'adaptive_table_layout.dart';
 
 /// The supported data input types for dynamic form fields.
-enum FieldType {
-  text,
-  number,
-  dropdown,
-  date,
-  boolean,
-}
+enum FieldType { text, number, dropdown, date, boolean }
 
 /// Description schema of a form input element.
 class DynamicFormField {
+  /// Key of the value in the submitted map.
   final String id;
+
+  /// Field label.
   final String label;
+
+  /// Input widget type.
   final FieldType type;
+
+  /// Initial value: `String` (text / dropdown), `num` (number), `DateTime`
+  /// (date), or `bool` (boolean).
   final dynamic initialValue;
+
+  /// Options of a [FieldType.dropdown] field.
   final List<String>? dropdownItems;
+
+  /// Whether the field must be filled.
   final bool isRequired;
+
+  /// Extra validation. Receives the current value (`String?` for text /
+  /// number / dropdown, `DateTime?` for date, `bool` for boolean) and returns
+  /// an error message or `null`.
   final String? Function(dynamic)? validator;
+
+  /// Placeholder text.
+  final String? hint;
+
+  /// Helper text shown under the field.
+  final String? helperText;
+
+  /// When `false` the field is shown read-only.
+  final bool enabled;
+
+  /// Lines of a text field (> 1 for multi-line input).
+  final int maxLines;
+
+  /// Earliest selectable date for [FieldType.date].
+  final DateTime? firstDate;
+
+  /// Latest selectable date for [FieldType.date].
+  final DateTime? lastDate;
 
   DynamicFormField({
     required this.id,
@@ -30,70 +61,165 @@ class DynamicFormField {
     this.dropdownItems,
     this.isRequired = false,
     this.validator,
+    this.hint,
+    this.helperText,
+    this.enabled = true,
+    this.maxLines = 1,
+    this.firstDate,
+    this.lastDate,
   });
 
+  DynamicFormField copyWith({
+    String? label,
+    FieldType? type,
+    dynamic initialValue,
+    List<String>? dropdownItems,
+    bool? isRequired,
+    String? Function(dynamic)? validator,
+    String? hint,
+    String? helperText,
+    bool? enabled,
+    int? maxLines,
+    DateTime? firstDate,
+    DateTime? lastDate,
+  }) {
+    return DynamicFormField(
+      id: id,
+      label: label ?? this.label,
+      type: type ?? this.type,
+      initialValue: initialValue ?? this.initialValue,
+      dropdownItems: dropdownItems ?? this.dropdownItems,
+      isRequired: isRequired ?? this.isRequired,
+      validator: validator ?? this.validator,
+      hint: hint ?? this.hint,
+      helperText: helperText ?? this.helperText,
+      enabled: enabled ?? this.enabled,
+      maxLines: maxLines ?? this.maxLines,
+      firstDate: firstDate ?? this.firstDate,
+      lastDate: lastDate ?? this.lastDate,
+    );
+  }
+
+  static const _booleanPrefixes = {'is', 'has', 'can', 'should', 'allow'};
+  static const _booleanWords = {'active', 'enabled', 'status', 'visible'};
+  static const _dateWords = {'date', 'day', 'birthday', 'dob', 'time'};
+  static const _dateSuffixes = {'at', 'on'};
+  static const _numberWords = {
+    'id', 'index', 'num', 'number', 'count', 'qty', 'quantity', 'rate', //
+    'amount', 'price', 'total', 'cost', 'equivalent', 'balance', 'age',
+    'salary', 'percent', 'percentage', 'score', 'sum', 'fee', 'tax',
+    'discount', 'min', 'max',
+  };
+
+  /// Splits `createdAt`, `created_at`, `Created At`, `created-at` into
+  /// `[created, at]`.
+  static List<String> tokenize(String name) {
+    final spaced = name
+        .replaceAllMapped(
+          RegExp(r'([a-z0-9])([A-Z])'),
+          (m) => '${m[1]} ${m[2]}',
+        )
+        .replaceAll(RegExp(r'[_\-\s.]+'), ' ')
+        .trim()
+        .toLowerCase();
+    return spaced.isEmpty ? const [] : spaced.split(' ');
+  }
+
+  /// Infers a [FieldType] from a column id / field name (whole words only,
+  /// so `discount` is not mistaken for a boolean because it contains "is").
+  static FieldType inferType(String id, String fieldName) {
+    for (final tokens in [tokenize(fieldName), tokenize(id)]) {
+      if (tokens.isEmpty) continue;
+      if (_booleanPrefixes.contains(tokens.first) && tokens.length > 1) {
+        return FieldType.boolean;
+      }
+      if (tokens.any(_booleanWords.contains)) return FieldType.boolean;
+    }
+    for (final tokens in [tokenize(fieldName), tokenize(id)]) {
+      if (tokens.isEmpty) continue;
+      if (tokens.any(_dateWords.contains) ||
+          (tokens.length > 1 && _dateSuffixes.contains(tokens.last))) {
+        return FieldType.date;
+      }
+    }
+    for (final tokens in [tokenize(fieldName), tokenize(id)]) {
+      if (tokens.any(_numberWords.contains)) return FieldType.number;
+    }
+    return FieldType.text;
+  }
+
   /// Automatically generates field schemas by detecting column settings and titles.
+  ///
+  /// * [dropdownItems] – columns rendered as dropdowns, with their options.
+  /// * [initialValues] – pre-filled values (e.g. when editing a row).
+  /// * [fieldTypes] – explicit type overrides that win over detection.
+  /// * [excludeIds] – columns to skip (defaults to `{'actions'}`). Columns
+  ///   with `isExportable: false` are skipped too.
+  /// * [optionalIds] – columns that are not required (defaults to `{'id'}`).
   static List<DynamicFormField> detectFromColumns<T>(
     List<AdaptiveTableColumn<T>> columns, {
     Map<String, List<String>>? dropdownItems,
     Map<String, dynamic>? initialValues,
+    Map<String, FieldType>? fieldTypes,
+    Set<String> excludeIds = const {'actions'},
+    Set<String> optionalIds = const {'id'},
   }) {
     return columns
-        .where((col) => col.id != 'actions') // Exclude action grids
+        .where((col) => !excludeIds.contains(col.id) && col.isExportable)
         .map((col) {
-      final nameLower = col.fieldName.toLowerCase();
-      final idLower = col.id.toLowerCase();
-
-      FieldType detectedType = FieldType.text;
-
-      if (dropdownItems != null && dropdownItems.containsKey(col.id)) {
-        detectedType = FieldType.dropdown;
-      } else if (nameLower.contains('is') ||
-          nameLower.contains('active') ||
-          nameLower.contains('status') ||
-          idLower.contains('status')) {
-        detectedType = FieldType.boolean;
-      } else if (nameLower.contains('date') || idLower.contains('date')) {
-        detectedType = FieldType.date;
-      } else if (nameLower.contains('rate') ||
-          nameLower.contains('amount') ||
-          nameLower.contains('price') ||
-          nameLower.contains('equivalent') ||
-          idLower == 'id' ||
-          idLower == 'index' ||
-          idLower == 'num') {
-        detectedType = FieldType.number;
-      }
-
-      return DynamicFormField(
-        id: col.id,
-        label: col.title,
-        type: detectedType,
-        dropdownItems: dropdownItems?[col.id],
-        initialValue: initialValues?[col.id],
-        isRequired: col.id != 'id', // ID usually auto-generates
-      );
-    }).toList();
+          final FieldType type;
+          if (fieldTypes?.containsKey(col.id) ?? false) {
+            type = fieldTypes![col.id]!;
+          } else if (dropdownItems?.containsKey(col.id) ?? false) {
+            type = FieldType.dropdown;
+          } else {
+            type = inferType(col.id, col.fieldName);
+          }
+          return DynamicFormField(
+            id: col.id,
+            label: col.title,
+            type: type,
+            dropdownItems: dropdownItems?[col.id],
+            initialValue: initialValues?[col.id],
+            isRequired: !optionalIds.contains(col.id),
+          );
+        })
+        .toList();
   }
 }
 
 /// A dynamic input form populated by schema rules.
+///
+/// Submitted values: `String?` (text / dropdown), `num?` (number, `null` when
+/// left empty), `DateTime` (date), `bool` (boolean).
 class DynamicForm extends StatefulWidget {
   final List<DynamicFormField> fields;
   final ValueChanged<Map<String, dynamic>> onFormSubmitted;
-  final String submitLabel;
-  final String cancelLabel;
-  final VoidCallback onCancel;
-  final AdaptiveTableTheme theme;
+
+  /// Submit button text. Defaults to the `send` label.
+  final String? submitLabel;
+
+  /// Cancel button text. Defaults to the `cancel` label.
+  final String? cancelLabel;
+
+  /// Hides the cancel button when `null`.
+  final VoidCallback? onCancel;
+
+  /// Defaults to [AdaptiveTableTheme.of].
+  final AdaptiveTableTheme? theme;
+
+  /// Defaults to [AdaptiveTableLabels.of].
+  final AdaptiveTableLabels? labels;
 
   const DynamicForm({
     super.key,
     required this.fields,
     required this.onFormSubmitted,
-    this.submitLabel = 'Send',
-    this.cancelLabel = 'Cancel',
-    required this.onCancel,
-    required this.theme,
+    this.submitLabel,
+    this.cancelLabel,
+    this.onCancel,
+    this.theme,
+    this.labels,
   });
 
   @override
@@ -104,25 +230,43 @@ class _DynamicFormState extends State<DynamicForm> {
   final _formKey = GlobalKey<FormState>();
   final Map<String, dynamic> _formValues = {};
 
+  late AdaptiveTableTheme _theme;
+  late AdaptiveTableLabels _labels;
+
   @override
   void initState() {
     super.initState();
     for (final field in widget.fields) {
-      _formValues[field.id] = field.initialValue ?? _getDefaultValue(field.type);
+      _formValues[field.id] = _initialValueFor(field);
     }
   }
 
-  dynamic _getDefaultValue(FieldType type) {
-    return switch (type) {
-      FieldType.boolean => false,
-      FieldType.date => DateTime.now(),
-      _ => null,
-    };
+  dynamic _initialValueFor(DynamicFormField field) {
+    final v = field.initialValue;
+    switch (field.type) {
+      case FieldType.boolean:
+        return v is bool ? v : false;
+      case FieldType.date:
+        if (v is DateTime) return v;
+        if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+        return DateTime.now();
+      case FieldType.dropdown:
+        final items = field.dropdownItems ?? const <String>[];
+        final s = v?.toString();
+        if (s != null && items.contains(s)) return s;
+        return field.isRequired && items.isNotEmpty ? items.first : null;
+      case FieldType.number:
+        if (v is num) return v;
+        return v == null ? null : num.tryParse(v.toString());
+      case FieldType.text:
+        return v?.toString();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // final isRtl = Directionality.of(context) == TextDirection.rtl;
+    _theme = widget.theme ?? AdaptiveTableTheme.of(context);
+    _labels = widget.labels ?? AdaptiveTableLabels.of(context);
 
     return Form(
       key: _formKey,
@@ -130,35 +274,42 @@ class _DynamicFormState extends State<DynamicForm> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ...widget.fields.map((field) {
-            return Padding(
+          for (final field in widget.fields)
+            Padding(
               padding: const EdgeInsets.only(bottom: 16.0),
               child: _buildFieldInput(field),
-            );
-          }),
+            ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
-                onPressed: widget.onCancel,
-                child: Text(widget.cancelLabel, style: TextStyle(color: Colors.grey.shade600)),
-              ),
-              const SizedBox(width: 12),
+              if (widget.onCancel != null) ...[
+                TextButton(
+                  onPressed: widget.onCancel,
+                  child: Text(
+                    widget.cancelLabel ?? _labels.cancel,
+                    style: TextStyle(color: _theme.footerTextStyle.color),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade600,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  backgroundColor: _theme.accentColor,
+                  foregroundColor: _theme.onAccentColor,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    _formKey.currentState!.save();
-                    widget.onFormSubmitted(_formValues);
-                  }
-                },
-                child: Text(widget.submitLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
+                onPressed: _submit,
+                child: Text(
+                  widget.submitLabel ?? _labels.send,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
@@ -167,29 +318,40 @@ class _DynamicFormState extends State<DynamicForm> {
     );
   }
 
+  void _submit() {
+    final form = _formKey.currentState!;
+    if (!form.validate()) return;
+    form.save();
+    widget.onFormSubmitted(Map<String, dynamic>.of(_formValues));
+  }
+
+  String? _runValidator(DynamicFormField field, dynamic value) =>
+      field.validator?.call(value);
+
   Widget _buildFieldInput(DynamicFormField field) {
     return switch (field.type) {
       FieldType.boolean => _buildBooleanInput(field),
       FieldType.date => _buildDateInput(field),
       FieldType.dropdown => _buildDropdownInput(field),
       FieldType.number => _buildNumberInput(field),
-      _ => _buildTextInput(field),
+      FieldType.text => _buildTextInput(field),
     };
   }
 
   Widget _buildTextInput(DynamicFormField field) {
     return TextFormField(
       initialValue: _formValues[field.id]?.toString(),
-      style: widget.theme.rowTextStyle,
-      decoration: _getInputDecoration(field.label),
+      enabled: field.enabled,
+      maxLines: field.maxLines,
+      minLines: 1,
+      style: _theme.rowTextStyle,
+      cursorColor: _theme.accentColor,
+      decoration: _getInputDecoration(field),
       validator: (val) {
         if (field.isRequired && (val == null || val.trim().isEmpty)) {
-          return 'Field is required';
+          return _labels.fieldRequired;
         }
-        if (field.validator != null) {
-          return field.validator!(val);
-        }
-        return null;
+        return _runValidator(field, val);
       },
       onSaved: (val) => _formValues[field.id] = val,
     );
@@ -198,132 +360,192 @@ class _DynamicFormState extends State<DynamicForm> {
   Widget _buildNumberInput(DynamicFormField field) {
     return TextFormField(
       initialValue: _formValues[field.id]?.toString(),
-      style: widget.theme.rowTextStyle,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: _getInputDecoration(field.label),
+      enabled: field.enabled,
+      style: _theme.rowTextStyle,
+      cursorColor: _theme.accentColor,
+      keyboardType: const TextInputType.numberWithOptions(
+        decimal: true,
+        signed: true,
+      ),
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-]')),
+      ],
+      decoration: _getInputDecoration(field),
       validator: (val) {
-        if (field.isRequired && (val == null || val.trim().isEmpty)) {
-          return 'Field is required';
+        final text = val?.trim() ?? '';
+        if (field.isRequired && text.isEmpty) return _labels.fieldRequired;
+        if (text.isNotEmpty && _parseNum(text) == null) {
+          return _labels.invalidNumber;
         }
-        if (val != null && val.isNotEmpty) {
-          final number = num.tryParse(val);
-          if (number == null) {
-            return 'Invalid number format';
-          }
-        }
-        if (field.validator != null) {
-          return field.validator!(val);
-        }
-        return null;
+        return _runValidator(field, val);
       },
       onSaved: (val) {
-        if (val == null || val.isEmpty) {
-          _formValues[field.id] = 0;
-        } else {
-          _formValues[field.id] = num.tryParse(val) ?? 0;
-        }
+        final text = val?.trim() ?? '';
+        _formValues[field.id] = text.isEmpty ? null : _parseNum(text);
       },
     );
   }
 
+  /// Accepts `1234.5` and `1,234.5`.
+  static num? _parseNum(String text) =>
+      num.tryParse(text) ?? num.tryParse(text.replaceAll(',', ''));
+
   Widget _buildDropdownInput(DynamicFormField field) {
-    final items = field.dropdownItems ?? [];
+    final items = field.dropdownItems ?? const <String>[];
     return DropdownButtonFormField<String>(
-      value: _formValues[field.id]?.toString() ?? (items.isNotEmpty ? items.first : null),
-      style: widget.theme.rowTextStyle,
-      decoration: _getInputDecoration(field.label),
-      dropdownColor: widget.theme.cardBackgroundColor,
-      items: items.map((item) {
-        return DropdownMenuItem<String>(
-          value: item,
-          child: Text(item, style: widget.theme.rowTextStyle),
-        );
-      }).toList(),
-      onChanged: (val) {
-        setState(() {
-          _formValues[field.id] = val;
-        });
-      },
+      initialValue: _formValues[field.id] as String?,
+      style: _theme.rowTextStyle,
+      decoration: _getInputDecoration(field),
+      dropdownColor: _theme.cardBackgroundColor.withValues(alpha: 1),
+      isExpanded: true,
+      items: [
+        for (final item in items)
+          DropdownMenuItem<String>(
+            value: item,
+            child: Text(item, style: _theme.rowTextStyle),
+          ),
+      ],
+      onChanged: field.enabled
+          ? (val) => setState(() => _formValues[field.id] = val)
+          : null,
       validator: (val) {
         if (field.isRequired && (val == null || val.isEmpty)) {
-          return 'Selection required';
+          return _labels.selectionRequired;
         }
-        return null;
+        return _runValidator(field, val);
       },
+      onSaved: (val) => _formValues[field.id] = val,
     );
   }
 
   Widget _buildDateInput(DynamicFormField field) {
-    final DateTime currentDate = _formValues[field.id] as DateTime? ?? DateTime.now();
-    final dateStr = DateFormat('yyyy-MM-dd').format(currentDate);
-
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: currentDate,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (picked != null) {
-          setState(() {
-            _formValues[field.id] = picked;
-          });
-        }
+    return FormField<DateTime>(
+      initialValue: _formValues[field.id] as DateTime?,
+      validator: (val) {
+        if (field.isRequired && val == null) return _labels.fieldRequired;
+        return _runValidator(field, val);
       },
-      child: InputDecorator(
-        decoration: _getInputDecoration(field.label).copyWith(
-          suffixIcon: Icon(Icons.calendar_today, size: 18, color: widget.theme.actionIconColor),
-        ),
-        child: Text(
-          dateStr,
-          style: widget.theme.rowTextStyle,
-        ),
-      ),
+      onSaved: (val) => _formValues[field.id] = val,
+      builder: (state) {
+        final current = state.value;
+        return InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: !field.enabled
+              ? null
+              : () async {
+                  final first = field.firstDate ?? DateTime(1900);
+                  final last = field.lastDate ?? DateTime(2200);
+                  var initial = current ?? DateTime.now();
+                  if (initial.isBefore(first)) initial = first;
+                  if (initial.isAfter(last)) initial = last;
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: initial,
+                    firstDate: first,
+                    lastDate: last,
+                  );
+                  if (picked != null) {
+                    state.didChange(picked);
+                    _formValues[field.id] = picked;
+                  }
+                },
+          child: InputDecorator(
+            decoration: _getInputDecoration(field).copyWith(
+              errorText: state.errorText,
+              enabled: field.enabled,
+              suffixIcon: Icon(
+                Icons.calendar_today,
+                size: 18,
+                color: _theme.actionIconColor,
+              ),
+            ),
+            isEmpty: current == null,
+            child: Text(
+              current == null ? '' : DateFormat('yyyy-MM-dd').format(current),
+              style: _theme.rowTextStyle,
+            ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildBooleanInput(DynamicFormField field) {
-    final isVal = _formValues[field.id] as bool? ?? false;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8.0),
-        border: Border.all(color: widget.theme.dividerColor),
-      ),
-      child: SwitchListTile(
-        title: Text(field.label, style: widget.theme.rowTextStyle.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-        value: isVal,
-        activeColor: Colors.blue.shade600,
-        onChanged: (val) {
-          setState(() {
-            _formValues[field.id] = val;
-          });
-        },
-      ),
+    return FormField<bool>(
+      initialValue: _formValues[field.id] as bool? ?? false,
+      validator: (val) => _runValidator(field, val),
+      onSaved: (val) => _formValues[field.id] = val ?? false,
+      builder: (state) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(
+                  color: state.hasError
+                      ? _theme.statusNegativeColor
+                      : _theme.dividerColor,
+                ),
+              ),
+              child: SwitchListTile(
+                title: Text(
+                  field.label,
+                  style: _theme.rowTextStyle.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                subtitle: field.helperText == null
+                    ? null
+                    : Text(field.helperText!, style: _theme.footerTextStyle),
+                value: state.value ?? false,
+                activeThumbColor: _theme.accentColor,
+                onChanged: field.enabled
+                    ? (val) {
+                        state.didChange(val);
+                        _formValues[field.id] = val;
+                      }
+                    : null,
+              ),
+            ),
+            if (state.hasError)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 12, top: 6),
+                child: Text(
+                  state.errorText!,
+                  style: TextStyle(
+                    color: _theme.statusNegativeColor,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
-  InputDecoration _getInputDecoration(String label) {
+  InputDecoration _getInputDecoration(DynamicFormField field) {
+    OutlineInputBorder border(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8.0),
+          borderSide: BorderSide(color: color, width: width),
+        );
     return InputDecoration(
-      labelText: label,
-      labelStyle: widget.theme.footerTextStyle.copyWith(fontSize: 13),
+      labelText: field.label,
+      hintText: field.hint,
+      helperText: field.helperText,
+      labelStyle: _theme.footerTextStyle.copyWith(fontSize: 13),
+      hintStyle: _theme.footerTextStyle.copyWith(fontSize: 12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8.0),
-        borderSide: BorderSide(color: widget.theme.dividerColor),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8.0),
-        borderSide: BorderSide(color: widget.theme.dividerColor),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8.0),
-        borderSide: BorderSide(color: Colors.blue.shade500, width: 1.5),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8.0),
-        borderSide: const BorderSide(color: Colors.red, width: 1.0),
-      ),
+      border: border(_theme.dividerColor),
+      enabledBorder: border(_theme.dividerColor),
+      disabledBorder: border(_theme.dividerColor.withValues(alpha: 0.5)),
+      focusedBorder: border(_theme.accentColor, 1.5),
+      errorBorder: border(_theme.statusNegativeColor),
+      focusedErrorBorder: border(_theme.statusNegativeColor, 1.5),
     );
   }
 }
@@ -332,34 +554,40 @@ class _DynamicFormState extends State<DynamicForm> {
 class DynamicFormDialog extends StatelessWidget {
   final String title;
   final List<DynamicFormField> fields;
-  final ValueChanged<Map<String, dynamic>> onSubmitted;
-  final String submitLabel;
-  final String cancelLabel;
-  final AdaptiveTableTheme theme;
+  final ValueChanged<Map<String, dynamic>>? onSubmitted;
+  final String? submitLabel;
+  final String? cancelLabel;
+  final AdaptiveTableTheme? theme;
+  final AdaptiveTableLabels? labels;
 
   const DynamicFormDialog({
     super.key,
     required this.title,
     required this.fields,
-    required this.onSubmitted,
-    this.submitLabel = 'Send',
-    this.cancelLabel = 'Cancel',
-    required this.theme,
+    this.onSubmitted,
+    this.submitLabel,
+    this.cancelLabel,
+    this.theme,
+    this.labels,
   });
 
   /// Opens the dynamic form modal.
-  static Future<void> show(
+  ///
+  /// Completes with the submitted values, or `null` when cancelled.
+  static Future<Map<String, dynamic>?> show(
     BuildContext context, {
     required String title,
     required List<DynamicFormField> fields,
-    required ValueChanged<Map<String, dynamic>> onSubmitted,
-    String submitLabel = 'Send',
-    String cancelLabel = 'Cancel',
-    required AdaptiveTableTheme theme,
+    ValueChanged<Map<String, dynamic>>? onSubmitted,
+    String? submitLabel,
+    String? cancelLabel,
+    AdaptiveTableTheme? theme,
+    AdaptiveTableLabels? labels,
+    bool barrierDismissible = false,
   }) {
-    return showDialog(
+    return showDialog<Map<String, dynamic>>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: barrierDismissible,
       builder: (context) {
         return DynamicFormDialog(
           title: title,
@@ -368,6 +596,7 @@ class DynamicFormDialog extends StatelessWidget {
           submitLabel: submitLabel,
           cancelLabel: cancelLabel,
           theme: theme,
+          labels: labels,
         );
       },
     );
@@ -375,9 +604,10 @@ class DynamicFormDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = theme ?? AdaptiveTableTheme.of(context);
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: theme.borderRadius),
-      backgroundColor: theme.cardBackgroundColor,
+      shape: RoundedRectangleBorder(borderRadius: t.borderRadius),
+      backgroundColor: t.cardBackgroundColor.withValues(alpha: 1),
       elevation: 24,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
@@ -390,21 +620,25 @@ class DynamicFormDialog extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: theme.headerTextStyle.copyWith(fontSize: 18),
+                  style: t.rowTextStyle.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
-                const Divider(),
+                Divider(color: t.dividerColor),
                 const SizedBox(height: 16),
                 DynamicForm(
                   fields: fields,
                   onFormSubmitted: (values) {
-                    Navigator.of(context).pop();
-                    onSubmitted(values);
+                    Navigator.of(context).pop(values);
+                    onSubmitted?.call(values);
                   },
                   submitLabel: submitLabel,
                   cancelLabel: cancelLabel,
                   onCancel: () => Navigator.of(context).pop(),
-                  theme: theme,
+                  theme: t,
+                  labels: labels,
                 ),
               ],
             ),
