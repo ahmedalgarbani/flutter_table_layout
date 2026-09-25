@@ -1,34 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter_table_layout/flutter_table_layout.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+
+import 'demo_data.dart';
 
 void main() {
   runApp(const ShowcaseApp());
 }
 
+enum DemoThemeStyle { modern, glassmorphic, gradient, cozy }
+
 class ShowcaseApp extends StatefulWidget {
-  const ShowcaseApp({super.key});
+  const ShowcaseApp({
+    super.key,
+    this.initialLocale = const Locale('ar', 'YE'),
+    this.initialThemeMode = ThemeMode.light,
+    this.initialStyle = DemoThemeStyle.modern,
+    this.initialTab = 0,
+    this.fontFamily,
+  });
+
+  final Locale initialLocale;
+  final ThemeMode initialThemeMode;
+  final DemoThemeStyle initialStyle;
+  final int initialTab;
+
+  /// Only used by the screenshot generator.
+  final String? fontFamily;
 
   @override
   State<ShowcaseApp> createState() => _ShowcaseAppState();
 }
 
 class _ShowcaseAppState extends State<ShowcaseApp> {
-  ThemeMode _themeMode = ThemeMode.light;
-  Locale _locale = const Locale('ar', 'YE'); // Default to Arabic RTL as in screenshots
-
-  void _toggleTheme() {
-    setState(() {
-      _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
-    });
-  }
-
-  void _toggleLocale() {
-    setState(() {
-      _locale = _locale.languageCode == 'ar' ? const Locale('en', 'US') : const Locale('ar', 'YE');
-    });
-  }
+  late ThemeMode _themeMode = widget.initialThemeMode;
+  late Locale _locale = widget.initialLocale;
 
   @override
   Widget build(BuildContext context) {
@@ -36,463 +43,480 @@ class _ShowcaseAppState extends State<ShowcaseApp> {
       title: 'Table Layout Showcase',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        fontFamily: widget.fontFamily,
+        fontFamilyFallback: widget.fontFamily == null ? null : const ['Cairo'],
       ),
       darkTheme: ThemeData(
-        useMaterial3: true,
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           brightness: Brightness.dark,
           seedColor: Colors.blue,
         ),
+        fontFamily: widget.fontFamily,
+        fontFamilyFallback: widget.fontFamily == null ? null : const ['Cairo'],
       ),
       themeMode: _themeMode,
       locale: _locale,
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       supportedLocales: const [Locale('en', 'US'), Locale('ar', 'YE')],
       home: DashboardHome(
+        // A new locale regenerates the demo data in that language.
+        key: ValueKey(_locale.languageCode),
         themeMode: _themeMode,
-        onToggleTheme: _toggleTheme,
-        onToggleLocale: _toggleLocale,
+        initialStyle: widget.initialStyle,
+        initialTab: widget.initialTab,
+        onToggleTheme: () => setState(() {
+          _themeMode = _themeMode == ThemeMode.light
+              ? ThemeMode.dark
+              : ThemeMode.light;
+        }),
+        onToggleLocale: () => setState(() {
+          _locale = _locale.languageCode == 'ar'
+              ? const Locale('en', 'US')
+              : const Locale('ar', 'YE');
+        }),
       ),
     );
   }
 }
 
-enum DemoThemeStyle {
-  modern,
-  glassmorphic,
-  gradient,
-  cozy,
-}
-
 class DashboardHome extends StatefulWidget {
-  final ThemeMode themeMode;
-  final VoidCallback onToggleTheme;
-  final VoidCallback onToggleLocale;
-
   const DashboardHome({
     super.key,
     required this.themeMode,
     required this.onToggleTheme,
     required this.onToggleLocale,
+    this.initialStyle = DemoThemeStyle.modern,
+    this.initialTab = 0,
   });
+
+  final ThemeMode themeMode;
+  final VoidCallback onToggleTheme;
+  final VoidCallback onToggleLocale;
+  final DemoThemeStyle initialStyle;
+  final int initialTab;
 
   @override
   State<DashboardHome> createState() => _DashboardHomeState();
 }
 
-class _DashboardHomeState extends State<DashboardHome> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  DemoThemeStyle _activeStyle = DemoThemeStyle.modern;
+class _DashboardHomeState extends State<DashboardHome>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(
+    length: 2,
+    vsync: this,
+    initialIndex: widget.initialTab,
+  );
+  late DemoThemeStyle _activeStyle = widget.initialStyle;
 
-  // --- Mock Datasets ---
+  final _transactionsController = AdaptiveTableController<AccountTransaction>();
+
   late List<AccountTransaction> _transactions;
   late List<Currency> _currencies;
+  bool _dataReady = false;
+  bool _isLoading = false;
+
+  static final _money = NumberFormat('#,##0.00');
+  static final _day = DateFormat('yyyy-MM-dd');
+
+  bool get _isArabic => Localizations.localeOf(context).languageCode == 'ar';
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _transactions = _generateTransactions();
-    _currencies = _generateCurrencies();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dataReady) return;
+    _dataReady = true;
+    _transactions = generateTransactions(arabic: _isArabic);
+    _currencies = generateCurrencies(arabic: _isArabic);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _transactionsController.dispose();
     super.dispose();
   }
 
   AdaptiveTableTheme _resolveTheme(BuildContext context) {
     final isDark = widget.themeMode == ThemeMode.dark;
     return switch (_activeStyle) {
-      DemoThemeStyle.glassmorphic => AdaptiveTableTheme.glassmorphic(context, isDark: isDark),
-      DemoThemeStyle.gradient => AdaptiveTableTheme.gradient(context, isDark: isDark),
+      DemoThemeStyle.glassmorphic => AdaptiveTableTheme.glassmorphic(
+        context,
+        isDark: isDark,
+      ),
+      DemoThemeStyle.gradient => AdaptiveTableTheme.gradient(
+        context,
+        isDark: isDark,
+      ),
       DemoThemeStyle.cozy => AdaptiveTableTheme.cozy(context, isDark: isDark),
-      _ => isDark ? AdaptiveTableTheme.dark(context) : AdaptiveTableTheme.light(context),
+      DemoThemeStyle.modern => AdaptiveTableTheme.adaptive(context),
     };
   }
 
+  String _t(String ar, String en) => _isArabic ? ar : en;
+
   @override
   Widget build(BuildContext context) {
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final isGlass = _activeStyle == DemoThemeStyle.glassmorphic;
+    final isDark = widget.themeMode == ThemeMode.dark;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isRtl ? 'لوحة تحكم الجداول التفاعلية' : 'Adaptive Tables Dashboard'),
+        title: Text(_t('لوحة تحكم الجداول التفاعلية', 'Adaptive Tables')),
         actions: [
-          // Theme preset selector
           PopupMenuButton<DemoThemeStyle>(
             icon: const Icon(Icons.palette_outlined),
-            tooltip: isRtl ? 'ستايل الجدول' : 'Table Style',
-            onSelected: (style) {
-              setState(() {
-                _activeStyle = style;
-              });
-            },
+            tooltip: _t('ستايل الجدول', 'Table style'),
+            initialValue: _activeStyle,
+            onSelected: (style) => setState(() => _activeStyle = style),
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: DemoThemeStyle.modern,
-                child: Text(isRtl ? 'ستايل عصري (افتراضي)' : 'Modern Style (Default)'),
+                child: Text(_t('عصري (افتراضي)', 'Modern (default)')),
               ),
               PopupMenuItem(
                 value: DemoThemeStyle.glassmorphic,
-                child: Text(isRtl ? 'تأثير زجاجي (Glassmorphism)' : 'Glassmorphism'),
+                child: Text(_t('زجاجي', 'Glassmorphism')),
               ),
               PopupMenuItem(
                 value: DemoThemeStyle.gradient,
-                child: Text(isRtl ? 'ستايل متدرج (Gradients)' : 'Gradient Accents'),
+                child: Text(_t('متدرج', 'Gradient accents')),
               ),
               PopupMenuItem(
                 value: DemoThemeStyle.cozy,
-                child: Text(isRtl ? 'ستايل مريح (Cozy Spaced)' : 'Cozy Spacing'),
+                child: Text(_t('مريح', 'Cozy spacing')),
               ),
             ],
           ),
           IconButton(
-            icon: Icon(widget.themeMode == ThemeMode.light ? Icons.dark_mode : Icons.light_mode),
+            tooltip: _t('الوضع الليلي', 'Dark mode'),
+            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
             onPressed: widget.onToggleTheme,
           ),
           TextButton.icon(
             icon: const Icon(Icons.language),
-            label: Text(isRtl ? 'English' : 'العربية'),
+            label: Text(_t('English', 'العربية')),
             onPressed: widget.onToggleLocale,
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
           tabs: [
-            Tab(text: isRtl ? 'تفاصيل الحساب' : 'Account Details'),
-            Tab(text: isRtl ? 'إدارة العملات' : 'Currencies Grid'),
+            Tab(text: _t('تفاصيل الحساب', 'Account details')),
+            Tab(text: _t('إدارة العملات', 'Currencies')),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildAccountDetailsTab(isRtl),
-          _buildCurrenciesTab(isRtl),
-        ],
+      body: DecoratedBox(
+        // A colorful backdrop makes the glassmorphic blur visible.
+        decoration: BoxDecoration(
+          gradient: isGlass
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? const [
+                          Color(0xFF0F2027),
+                          Color(0xFF203A43),
+                          Color(0xFF2C5364),
+                        ]
+                      : const [
+                          Color(0xFF89F7FE),
+                          Color(0xFF66A6FF),
+                          Color(0xFFB721FF),
+                        ],
+                )
+              : null,
+        ),
+        child: TabBarView(
+          controller: _tabController,
+          children: [_buildTransactionsTab(), _buildCurrenciesTab()],
+        ),
       ),
     );
   }
 
-  // --- View: Account Details ---
+  // --- Tab 1: Account transactions ---
 
-  Widget _buildAccountDetailsTab(bool isRtl) {
-    final currentTheme = _resolveTheme(context);
+  Widget _buildTransactionsTab() {
+    final theme = _resolveTheme(context);
 
-    // Define table columns
-    final tableColumns = [
+    final columns = [
       AdaptiveTableColumn<AccountTransaction>(
         id: 'id',
-        title: isRtl ? '# م' : 'No.',
-        fieldName: 'id',
-        width: 60,
+        title: _t('م', 'No.'),
+        width: 80,
         alignment: TableColumnAlignment.center,
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'date',
-        title: isRtl ? 'التاريخ' : 'Date',
-        fieldName: 'date',
+        title: _t('التاريخ', 'Date'),
         width: 120,
         alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) => Text(
-          DateFormat('yyyy-MM-dd').format(item.date),
-          style: const TextStyle(fontSize: 13),
-        ),
-      ),
-      AdaptiveTableColumn<AccountTransaction>(
-        id: 'amount',
-        title: isRtl ? 'المبلغ' : 'Amount',
-        fieldName: 'amount',
-        width: 100,
-        alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) => Text(
-          NumberFormat('#,##0.00').format(item.amount),
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
-      ),
-      AdaptiveTableColumn<AccountTransaction>(
-        id: 'currency',
-        title: isRtl ? 'العملة' : 'Currency',
-        fieldName: 'currency',
-        width: 80,
-        alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) => Text(
-          item.currency,
-          style: const TextStyle(
-            color: Colors.teal,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-      ),
-      AdaptiveTableColumn<AccountTransaction>(
-        id: 'baseEquivalent',
-        title: isRtl ? 'ما يعادل العملة الأساسية' : 'Equivalent Base',
-        fieldName: 'baseEquivalent',
-        width: 150,
-        alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) => Text(
-          NumberFormat('#,##0.00').format(item.baseEquivalent),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        valueFormatter: (v) => _day.format(v as DateTime),
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'details',
-        title: isRtl ? 'التفاصيل' : 'Details',
-        fieldName: 'details',
-        flex: 2,
-        alignment: TableColumnAlignment.start,
-        cellBuilder: (context, item) => Text(
-          item.details,
-          style: const TextStyle(fontSize: 13),
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: _t('البيان', 'Details'),
+        flex: 3,
+      ),
+      AdaptiveTableColumn<AccountTransaction>(
+        id: 'amount',
+        title: _t('المبلغ', 'Amount'),
+        width: 120,
+        alignment: TableColumnAlignment.end,
+        valueFormatter: (v) => _money.format(v),
+      ),
+      AdaptiveTableColumn<AccountTransaction>(
+        id: 'currency',
+        title: _t('العملة', 'Currency'),
+        width: 120,
+        alignment: TableColumnAlignment.center,
+        cellBuilder: (context, t) => _CurrencyChip(code: t.currency),
+      ),
+      AdaptiveTableColumn<AccountTransaction>(
+        id: 'baseEquivalent',
+        title: _t('المعادل (ر.ي)', 'Equivalent (YER)'),
+        width: 150,
+        alignment: TableColumnAlignment.end,
+        valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'status',
-        title: isRtl ? 'الحالة' : 'Status',
+        title: _t('النوع', 'Type'),
         fieldName: 'isDeposit',
-        width: 80,
+        width: 140,
         alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) {
-          return Icon(
-            item.isDeposit ? Icons.arrow_upward : Icons.arrow_downward,
-            color: item.isDeposit ? Colors.green.shade700 : Colors.red.shade700,
-            size: 20,
-          );
-        },
+        cellBuilder: (context, t) => _TypeBadge(
+          deposit: t.isDeposit,
+          label: t.isDeposit ? _t('إيداع', 'Deposit') : _t('سحب', 'Withdrawal'),
+          theme: theme,
+        ),
       ),
     ];
 
-    // Extraction map for search/sort/exports
     final providers = <String, dynamic Function(AccountTransaction)>{
       'id': (t) => t.id,
       'date': (t) => t.date,
+      'details': (t) => t.details,
       'amount': (t) => t.amount,
       'currency': (t) => t.currency,
       'baseEquivalent': (t) => t.baseEquivalent,
-      'details': (t) => t.details,
-      'status': (t) => t.isDeposit ? 'Deposit' : 'Withdrawal',
+      'status': (t) =>
+          t.isDeposit ? _t('إيداع', 'Deposit') : _t('سحب', 'Withdrawal'),
     };
 
     return SingleChildScrollView(
-      child: Column(
-        children: [
-          AdaptiveTableLayout<AccountTransaction>(
-            title: isRtl ? 'تفاصيل الحساب' : 'Account Details',
-            subtitle: isRtl ? 'كشف حركة حساب العملات والمدفوعات' : 'Statement of multi-currency transactions',
-            titleIcon: Icon(
-              Icons.account_balance_wallet,
-              color: Colors.blue.shade800,
-            ),
-            items: _transactions,
-            columns: tableColumns,
-            valueProviders: providers,
-            dateProvider: (item) => item.date,
-            showSelection: false,
-            searchHint: isRtl ? 'البحث عن عملية...' : 'Search transaction...',
-            dateFromLabel: isRtl ? 'من تاريخ *' : 'From Date *',
-            dateToLabel: isRtl ? 'إلى تاريخ *' : 'To Date *',
-            queryButtonLabel: isRtl ? 'إستعلام' : 'Query',
-            onQueryPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(isRtl ? 'تم تطبيق تصفية التاريخ' : 'Date filter queried successfully!'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            },
-            onRefreshPressed: () {
-              setState(() {
-                _transactions = _generateTransactions();
-              });
-            },
-            onAddNewPressed: () => _addNewTransaction(isRtl, tableColumns, currentTheme),
-            theme: currentTheme,
-            summaryBuilder: (context, visibleItems) {
-              final count = visibleItems.length;
-              double totalDeposit = 0;
-              double totalWithdraw = 0;
-
-              for (final item in visibleItems) {
-                if (item.isDeposit) {
-                  totalDeposit += item.amount;
-                } else {
-                  totalWithdraw += item.amount;
-                }
-              }
-
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    isRtl ? '# العدد: $count' : '# Count: $count',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                  Wrap(
-                    spacing: 16,
-                    children: [
-                      Text(
-                        isRtl
-                            ? 'له (YER): ${NumberFormat('#,##0.00').format(totalDeposit)}'
-                            : 'Deposit (YER): ${NumberFormat('#,##0.00').format(totalDeposit)}',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700, fontSize: 13),
-                      ),
-                      Text(
-                        isRtl
-                            ? 'عليه (YER): ${NumberFormat('#,##0.00').format(totalWithdraw)}'
-                            : 'Withdraw (YER): ${NumberFormat('#,##0.00').format(totalWithdraw)}',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade700, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
+      child: AdaptiveTableLayout<AccountTransaction>(
+        controller: _transactionsController,
+        title: _t('كشف الحساب', 'Account statement'),
+        subtitle: _t(
+          'حركة الحساب بعملات متعددة',
+          'Multi-currency transactions',
+        ),
+        titleIcon: Icon(
+          Icons.account_balance_wallet_outlined,
+          color: theme.effectiveTitleTextStyle.color,
+        ),
+        items: _transactions,
+        columns: columns,
+        valueProviders: providers,
+        dateProvider: (t) => t.date,
+        customFilterMatcher: (t, filters) {
+          final currency = filters['currency'];
+          return currency == null || t.currency == currency;
+        },
+        customFilters: [
+          _CurrencyFilter<AccountTransaction>(isArabic: _isArabic),
         ],
+        initialSortColumnId: 'date',
+        initialSortAscending: false,
+        isLoading: _isLoading,
+        theme: theme,
+        mobileTitleColumnId: 'details',
+        mobileSubtitleColumnId: 'baseEquivalent',
+        expandedRowBuilder: (context, t) =>
+            _TransactionDetails(transaction: t, isArabic: _isArabic),
+        onRefreshPressed: _simulateRefresh,
+        onAddNewPressed: () => _addTransaction(columns, theme),
+        summaryBuilder: (context, rows) =>
+            _TransactionsSummary(rows: rows, isArabic: _isArabic, theme: theme),
       ),
     );
   }
 
-  // --- View: Currencies Grid ---
+  Future<void> _simulateRefresh() async {
+    setState(() => _isLoading = true);
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted) return;
+    setState(() {
+      _transactions = generateTransactions(arabic: _isArabic);
+      _isLoading = false;
+    });
+  }
 
-  Widget _buildCurrenciesTab(bool isRtl) {
-    final currentTheme = _resolveTheme(context);
+  Future<void> _addTransaction(
+    List<AdaptiveTableColumn<AccountTransaction>> columns,
+    AdaptiveTableTheme theme,
+  ) async {
+    final values = await DynamicFormDialog.show(
+      context,
+      title: _t('إضافة عملية مالية', 'New transaction'),
+      theme: theme,
+      fields: DynamicFormField.detectFromColumns(
+        columns,
+        dropdownItems: {
+          'currency': ['YER', 'SAR', 'USD'],
+        },
+        // Computed by the app, not typed by the user.
+        excludeIds: {'id', 'baseEquivalent'},
+      ),
+    );
+    if (values == null || !mounted) return;
 
-    // Define columns
-    late final List<AdaptiveTableColumn<Currency>> tableColumns;
-    tableColumns = [
+    final nextId =
+        _transactions.fold<int>(0, (m, t) => t.id > m ? t.id : m) + 1;
+    final currency = values['currency'] as String? ?? 'YER';
+    final amount = (values['amount'] as num?)?.toDouble() ?? 0;
+    setState(() {
+      _transactions = [
+        ..._transactions,
+        AccountTransaction(
+          id: nextId,
+          date: values['date'] as DateTime? ?? DateTime.now(),
+          amount: amount,
+          currency: currency,
+          baseEquivalent: amount * rateOf(currency),
+          details: values['details'] as String? ?? '',
+          isDeposit: values['status'] == true,
+        ),
+      ];
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_t('تمت إضافة العملية', 'Transaction added'))),
+    );
+  }
+
+  // --- Tab 2: Currencies ---
+
+  Widget _buildCurrenciesTab() {
+    final theme = _resolveTheme(context);
+
+    late final List<AdaptiveTableColumn<Currency>> columns;
+    columns = [
       AdaptiveTableColumn<Currency>(
         id: 'id',
-        title: isRtl ? 'الرقم' : 'ID',
-        fieldName: 'id',
-        width: 60,
+        title: _t('الرقم', 'ID'),
+        width: 70,
         alignment: TableColumnAlignment.center,
       ),
       AdaptiveTableColumn<Currency>(
         id: 'name',
-        title: isRtl ? 'اسم العملة' : 'Currency Name',
-        fieldName: 'name',
+        title: _t('اسم العملة', 'Currency'),
         flex: 2,
-        alignment: TableColumnAlignment.start,
       ),
       AdaptiveTableColumn<Currency>(
         id: 'code',
-        title: isRtl ? 'رمز العملة' : 'Symbol',
-        fieldName: 'code',
+        title: _t('الرمز', 'Code'),
         width: 100,
         alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.blue.shade50,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            item.code,
-            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue, fontSize: 12),
-          ),
-        ),
+        cellBuilder: (context, c) => _CurrencyChip(code: c.code),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'symbol',
-        title: isRtl ? 'اختصار العملة' : 'Abbr.',
-        fieldName: 'symbol',
-        width: 80,
+        title: _t('الاختصار', 'Symbol'),
+        width: 110,
         alignment: TableColumnAlignment.center,
       ),
       AdaptiveTableColumn<Currency>(
         id: 'subunit',
-        title: isRtl ? 'فكة العملة' : 'Subunit',
-        fieldName: 'subunit',
-        width: 100,
+        title: _t('الفكة', 'Subunit'),
+        width: 120,
         alignment: TableColumnAlignment.center,
       ),
       AdaptiveTableColumn<Currency>(
         id: 'rate',
-        title: isRtl ? 'سعر الصرف' : 'Rate',
-        fieldName: 'rate',
+        title: _t('سعر الصرف', 'Rate'),
         width: 110,
         alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) => Text(
-          NumberFormat('#,##0.00').format(item.rate),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'minRate',
-        title: isRtl ? 'اقل سعر' : 'Min Rate',
-        fieldName: 'minRate',
+        title: _t('أقل سعر', 'Min rate'),
         width: 110,
         alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) => Text(NumberFormat('#,##0.00').format(item.minRate)),
+        isVisible: false, // hidden by default, can be shown from the menu
+        valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'maxRate',
-        title: isRtl ? 'اعلى سعر' : 'Max Rate',
-        fieldName: 'maxRate',
+        title: _t('أعلى سعر', 'Max rate'),
         width: 110,
         alignment: TableColumnAlignment.end,
-        cellBuilder: (context, item) => Text(NumberFormat('#,##0.00').format(item.maxRate)),
+        isVisible: false,
+        valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'status',
-        title: isRtl ? 'الحالة' : 'Status',
+        title: _t('الحالة', 'Active'),
         fieldName: 'isActive',
-        width: 90,
+        width: 110,
         alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) {
-          return Switch(
-            value: item.isActive,
-            activeThumbColor: Colors.teal.shade400,
-            onChanged: (val) {
-              setState(() {
-                item.isActive = val;
-              });
-            },
-          );
-        },
+        cellBuilder: (context, c) => Switch(
+          value: c.isActive,
+          activeThumbColor: theme.accentColor,
+          onChanged: (val) => setState(() {
+            _currencies = [
+              for (final e in _currencies)
+                e.id == c.id ? e.copyWith(isActive: val) : e,
+            ];
+          }),
+        ),
       ),
       AdaptiveTableColumn<Currency>(
         id: 'actions',
-        title: isRtl ? 'الاجراءات' : 'Actions',
-        fieldName: 'actions',
-        width: 100,
+        title: _t('الإجراءات', 'Actions'),
+        width: 130,
         alignment: TableColumnAlignment.center,
-        cellBuilder: (context, item) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.edit, size: 18, color: Colors.blue),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () => _editCurrency(isRtl, item, tableColumns, currentTheme),
+        isSortable: false,
+        isSearchable: false,
+        isExportable: false,
+        cellBuilder: (context, c) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: _t('تعديل', 'Edit'),
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+              padding: EdgeInsets.zero,
+              icon: Icon(
+                Icons.edit_outlined,
+                size: 18,
+                color: theme.accentColor,
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () => _deleteCurrency(item),
+              onPressed: () => _editCurrency(c, columns, theme),
+            ),
+            IconButton(
+              tooltip: _t('حذف', 'Delete'),
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+              padding: EdgeInsets.zero,
+              icon: Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: theme.statusNegativeColor,
               ),
-            ],
-          );
-        },
+              onPressed: () => setState(() {
+                _currencies = _currencies.where((e) => e.id != c.id).toList();
+              }),
+            ),
+          ],
+        ),
       ),
     ];
 
-    // Data extractor map
     final providers = <String, dynamic Function(Currency)>{
       'id': (c) => c.id,
       'name': (c) => c.name,
@@ -502,355 +526,292 @@ class _DashboardHomeState extends State<DashboardHome> with SingleTickerProvider
       'rate': (c) => c.rate,
       'minRate': (c) => c.minRate,
       'maxRate': (c) => c.maxRate,
-      'status': (c) => c.isActive ? 'Active' : 'Inactive',
+      'status': (c) => c.isActive,
     };
 
     return SingleChildScrollView(
-      child: Column(
-        children: [
-          AdaptiveTableLayout<Currency>(
-            title: isRtl ? 'العملات' : 'Currencies',
-            subtitle: isRtl ? 'قائمة العملات المتاحة وأسعار صرفها' : 'List of currencies and their exchange rates',
-            titleIcon: Icon(Icons.monetization_on, color: Colors.teal.shade700),
-            items: _currencies,
-            columns: tableColumns,
-            valueProviders: providers,
-            showSummary: false,
-            searchHint: isRtl ? 'بحث...' : 'Search currency...',
-            onRefreshPressed: () {
-              setState(() {
-                _currencies = _generateCurrencies();
-              });
-            },
-            onAddNewPressed: () => _addNewCurrency(isRtl, tableColumns, currentTheme),
-            theme: currentTheme,
-          ),
-        ],
+      child: AdaptiveTableLayout<Currency>(
+        title: _t('العملات', 'Currencies'),
+        subtitle: _t(
+          'قائمة العملات وأسعار صرفها',
+          'Currencies and exchange rates',
+        ),
+        titleIcon: Icon(
+          Icons.currency_exchange,
+          color: theme.effectiveTitleTextStyle.color,
+        ),
+        items: _currencies,
+        columns: columns,
+        valueProviders: providers,
+        showSummary: false,
+        showSelection: false,
+        pageSizes: const [5, 10],
+        rowColorBuilder: (c) => c.isActive
+            ? null
+            : theme.statusNegativeColor.withValues(alpha: 0.06),
+        onRefreshPressed: () => setState(() {
+          _currencies = generateCurrencies(arabic: _isArabic);
+        }),
+        onAddNewPressed: () => _addCurrency(columns, theme),
+        theme: theme,
       ),
     );
   }
 
-  // --- Action Handlers (Dynamic Forms) ---
-
-  void _addNewTransaction(
-    bool isRtl,
-    List<AdaptiveTableColumn<AccountTransaction>> columns,
-    AdaptiveTableTheme theme,
-  ) {
-    // Generate dynamic form schema
-    final fields = DynamicFormField.detectFromColumns(
-      columns,
-      dropdownItems: {
-        'currency': ['YER', 'SAR', 'USD'],
-      },
-    );
-
-    DynamicFormDialog.show(
-      context,
-      title: isRtl ? 'إضافة عملية مالية جديدة' : 'Add New Transaction',
-      fields: fields,
-      theme: theme,
-      submitLabel: isRtl ? 'إرسال' : 'Send',
-      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
-      onSubmitted: (values) {
-        final nextId = _transactions.map((t) => t.id).fold(0, (max, id) => id > max ? id : max) + 1;
-        setState(() {
-          _transactions.add(
-            AccountTransaction(
-              id: nextId,
-              date: values['date'] as DateTime? ?? DateTime.now(),
-              amount: (values['amount'] as num?)?.toDouble() ?? 0.0,
-              currency: values['currency']?.toString() ?? 'YER',
-              baseEquivalent: (values['baseEquivalent'] as num?)?.toDouble() ?? 0.0,
-              details: values['details']?.toString() ?? '',
-              isDeposit: values['status'] == true,
-            ),
-          );
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isRtl ? 'تم إضافة العملية بنجاح!' : 'Transaction added successfully!')),
-        );
-      },
-    );
-  }
-
-  void _addNewCurrency(
-    bool isRtl,
+  Future<void> _addCurrency(
     List<AdaptiveTableColumn<Currency>> columns,
     AdaptiveTableTheme theme,
-  ) {
-    final fields = DynamicFormField.detectFromColumns(
-      columns,
-      dropdownItems: {
-        'subunit': ['فلوس', 'هللة', 'سنت'],
-      },
-    );
-
-    DynamicFormDialog.show(
+  ) async {
+    final values = await DynamicFormDialog.show(
       context,
-      title: isRtl ? 'إضافة عملة جديدة' : 'Add New Currency',
-      fields: fields,
+      title: _t('إضافة عملة', 'New currency'),
       theme: theme,
-      submitLabel: isRtl ? 'إرسال' : 'Send',
-      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
-      onSubmitted: (values) {
-        final nextId = _currencies.map((c) => c.id).fold(0, (max, id) => id > max ? id : max) + 1;
-        setState(() {
-          _currencies.add(
-            Currency(
-              id: nextId,
-              name: values['name']?.toString() ?? 'New Currency',
-              code: values['code']?.toString() ?? 'NEW',
-              symbol: values['symbol']?.toString() ?? 'N',
-              subunit: values['subunit']?.toString() ?? 'cent',
-              rate: (values['rate'] as num?)?.toDouble() ?? 1.0,
-              minRate: (values['minRate'] as num?)?.toDouble() ?? 1.0,
-              maxRate: (values['maxRate'] as num?)?.toDouble() ?? 1.0,
-              isActive: values['status'] == true,
-            ),
-          );
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isRtl ? 'تم إضافة العملة بنجاح!' : 'Currency added successfully!')),
-        );
-      },
+      fields: DynamicFormField.detectFromColumns(columns, excludeIds: {'id'}),
     );
+    if (values == null || !mounted) return;
+    final nextId = _currencies.fold<int>(0, (m, c) => c.id > m ? c.id : m) + 1;
+    setState(() {
+      _currencies = [..._currencies, _currencyFromForm(nextId, values, null)];
+    });
   }
 
-  void _editCurrency(
-    bool isRtl,
+  Future<void> _editCurrency(
     Currency item,
     List<AdaptiveTableColumn<Currency>> columns,
     AdaptiveTableTheme theme,
-  ) {
-    // Fill initial values for editing
-    final fields = DynamicFormField.detectFromColumns(
-      columns,
-      dropdownItems: {
-        'subunit': ['فلوس', 'هللة', 'سنت'],
-      },
-      initialValues: {
-        'id': item.id,
-        'name': item.name,
-        'code': item.code,
-        'symbol': item.symbol,
-        'subunit': item.subunit,
-        'rate': item.rate,
-        'minRate': item.minRate,
-        'maxRate': item.maxRate,
-        'status': item.isActive,
-      },
-    );
-
-    DynamicFormDialog.show(
+  ) async {
+    final values = await DynamicFormDialog.show(
       context,
-      title: isRtl ? 'تعديل العملة' : 'Edit Currency',
-      fields: fields,
+      title: _t('تعديل العملة', 'Edit currency'),
       theme: theme,
-      submitLabel: isRtl ? 'حفظ' : 'Save',
-      cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
-      onSubmitted: (values) {
-        setState(() {
-          final index = _currencies.indexWhere((c) => c.id == item.id);
-          if (index != -1) {
-            _currencies[index] = Currency(
-              id: item.id,
-              name: values['name']?.toString() ?? item.name,
-              code: values['code']?.toString() ?? item.code,
-              symbol: values['symbol']?.toString() ?? item.symbol,
-              subunit: values['subunit']?.toString() ?? item.subunit,
-              rate: (values['rate'] as num?)?.toDouble() ?? item.rate,
-              minRate: (values['minRate'] as num?)?.toDouble() ?? item.minRate,
-              maxRate: (values['maxRate'] as num?)?.toDouble() ?? item.maxRate,
-              isActive: values['status'] == true,
-            );
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isRtl ? 'تم حفظ التعديلات!' : 'Currency updated successfully!')),
-        );
-      },
+      submitLabel: _t('حفظ', 'Save'),
+      fields: DynamicFormField.detectFromColumns(
+        columns,
+        excludeIds: {'id'},
+        initialValues: {
+          'name': item.name,
+          'code': item.code,
+          'symbol': item.symbol,
+          'subunit': item.subunit,
+          'rate': item.rate,
+          'minRate': item.minRate,
+          'maxRate': item.maxRate,
+          'status': item.isActive,
+        },
+      ),
     );
-  }
-
-  void _deleteCurrency(Currency item) {
+    if (values == null || !mounted) return;
     setState(() {
-      _currencies.removeWhere((c) => c.id == item.id);
+      _currencies = [
+        for (final c in _currencies)
+          c.id == item.id ? _currencyFromForm(item.id, values, item) : c,
+      ];
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Deleted currency: ${item.name}')),
+  }
+
+  Currency _currencyFromForm(int id, Map<String, dynamic> v, Currency? old) {
+    double num0(String key, double fallback) =>
+        (v[key] as num?)?.toDouble() ?? fallback;
+    return Currency(
+      id: id,
+      name: v['name'] as String? ?? old?.name ?? '',
+      code: v['code'] as String? ?? old?.code ?? '',
+      symbol: v['symbol'] as String? ?? old?.symbol ?? '',
+      subunit: v['subunit'] as String? ?? old?.subunit ?? '',
+      rate: num0('rate', old?.rate ?? 1),
+      minRate: num0('minRate', old?.minRate ?? 1),
+      maxRate: num0('maxRate', old?.maxRate ?? 1),
+      isActive: v['status'] == true,
+    );
+  }
+}
+
+// --- Small presentational widgets ---
+
+class _CurrencyChip extends StatelessWidget {
+  const _CurrencyChip({required this.code});
+  final String code;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (code) {
+      'USD' => Colors.green,
+      'SAR' => Colors.teal,
+      'EUR' => Colors.indigo,
+      'AED' => Colors.deepOrange,
+      _ => Colors.blue,
+    };
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: dark ? 0.2 : 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        code,
+        style: TextStyle(
+          color: dark ? color.shade200 : color.shade700,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeBadge extends StatelessWidget {
+  const _TypeBadge({
+    required this.deposit,
+    required this.label,
+    required this.theme,
+  });
+  final bool deposit;
+  final String label;
+  final AdaptiveTableTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = deposit
+        ? theme.statusPositiveColor
+        : theme.statusNegativeColor;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          deposit ? Icons.south_west : Icons.north_east,
+          size: 14,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A custom filter widget: it reads the table cubit from the context.
+class _CurrencyFilter<T> extends StatelessWidget {
+  const _CurrencyFilter({required this.isArabic});
+  final bool isArabic;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.watch<TableCubit<T>>();
+    final current = cubit.tableState.customFilters['currency'] as String?;
+    return SegmentedButton<String>(
+      showSelectedIcon: false,
+      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+      segments: [
+        ButtonSegment(value: 'all', label: Text(isArabic ? 'الكل' : 'All')),
+        const ButtonSegment(value: 'YER', label: Text('YER')),
+        const ButtonSegment(value: 'SAR', label: Text('SAR')),
+        const ButtonSegment(value: 'USD', label: Text('USD')),
+      ],
+      selected: {current ?? 'all'},
+      onSelectionChanged: (s) =>
+          cubit.setCustomFilter('currency', s.first == 'all' ? null : s.first),
+    );
+  }
+}
+
+class _TransactionsSummary extends StatelessWidget {
+  const _TransactionsSummary({
+    required this.rows,
+    required this.isArabic,
+    required this.theme,
+  });
+  final List<AccountTransaction> rows;
+  final bool isArabic;
+  final AdaptiveTableTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat('#,##0.00');
+    var deposits = 0.0;
+    var withdrawals = 0.0;
+    for (final r in rows) {
+      if (r.isDeposit) {
+        deposits += r.baseEquivalent;
+      } else {
+        withdrawals += r.baseEquivalent;
+      }
+    }
+    final balance = deposits - withdrawals;
+    TextStyle style(Color c) =>
+        TextStyle(fontWeight: FontWeight.bold, color: c, fontSize: 13);
+
+    return Wrap(
+      spacing: 24,
+      runSpacing: 6,
+      alignment: WrapAlignment.spaceBetween,
+      children: [
+        Text(
+          isArabic
+              ? 'عدد العمليات: ${rows.length}'
+              : 'Transactions: ${rows.length}',
+          style: style(theme.rowTextStyle.color ?? Colors.black87),
+        ),
+        Text(
+          '${isArabic ? 'له' : 'Deposits'}: ${money.format(deposits)}',
+          style: style(theme.statusPositiveColor),
+        ),
+        Text(
+          '${isArabic ? 'عليه' : 'Withdrawals'}: ${money.format(withdrawals)}',
+          style: style(theme.statusNegativeColor),
+        ),
+        Text(
+          '${isArabic ? 'الرصيد' : 'Balance'}: ${money.format(balance)}',
+          style: style(theme.accentColor),
+        ),
+      ],
+    );
+  }
+}
+
+class _TransactionDetails extends StatelessWidget {
+  const _TransactionDetails({
+    required this.transaction,
+    required this.isArabic,
+  });
+  final AccountTransaction transaction;
+  final bool isArabic;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = transaction;
+    final rate = rateOf(t.currency);
+    return Wrap(
+      spacing: 32,
+      runSpacing: 8,
+      children: [
+        _kv(
+          isArabic ? 'رقم السند' : 'Voucher',
+          'TX-${t.id.toString().padLeft(5, '0')}',
+        ),
+        _kv(isArabic ? 'سعر الصرف' : 'Exchange rate', rate.toStringAsFixed(2)),
+        _kv(isArabic ? 'البيان' : 'Details', t.details),
+      ],
     );
   }
 
-  // --- Data Generators ---
-
-  List<AccountTransaction> _generateTransactions() {
-    return [
-      AccountTransaction(
-        id: 1,
-        date: DateTime(2026, 4, 22),
-        amount: 5300.0,
-        currency: 'YER',
-        baseEquivalent: 5300.0,
-        details: 'مقابل خدمات استشارية',
-        isDeposit: true,
-      ),
-      AccountTransaction(
-        id: 2,
-        date: DateTime(2026, 4, 25),
-        amount: 4580.0,
-        currency: 'YER',
-        baseEquivalent: 4580.0,
-        details: 'تجربه',
-        isDeposit: true,
-      ),
-      AccountTransaction(
-        id: 3,
-        date: DateTime(2026, 4, 29),
-        amount: 1.0,
-        currency: 'YER',
-        baseEquivalent: 1.0,
-        details: 'سيبسي',
-        isDeposit: true,
-      ),
-      AccountTransaction(
-        id: 4,
-        date: DateTime(2026, 4, 29),
-        amount: 3200.0,
-        currency: 'YER',
-        baseEquivalent: 3200.0,
-        details: 'للل',
-        isDeposit: true,
-      ),
-      AccountTransaction(
-        id: 5,
-        date: DateTime(2026, 5, 4),
-        amount: 22000.0,
-        currency: 'YER',
-        baseEquivalent: 22000.0,
-        details: 'سند صرف من فاتورة مشتريات رقم 4',
-        isDeposit: false,
-      ),
-      AccountTransaction(
-        id: 6,
-        date: DateTime(2026, 5, 4),
-        amount: 22000.0,
-        currency: 'YER',
-        baseEquivalent: 22000.0,
-        details: 'مقابل فاتورة مشتريات',
-        isDeposit: true,
-      ),
-      AccountTransaction(
-        id: 7,
-        date: DateTime(2026, 5, 10),
-        amount: 15000.0,
-        currency: 'YER',
-        baseEquivalent: 15000.0,
-        details: 'دفعة سداد حساب العميل',
-        isDeposit: false,
-      ),
-      AccountTransaction(
-        id: 8,
-        date: DateTime(2026, 5, 15),
-        amount: 30000.0,
-        currency: 'YER',
-        baseEquivalent: 30000.0,
-        details: 'إيداع نقدي مباشر',
-        isDeposit: true,
-      ),
-    ];
-  }
-
-  List<Currency> _generateCurrencies() {
-    return [
-      Currency(
-        id: 4,
-        name: 'ريال يمني',
-        code: 'YER',
-        symbol: 'ر.ي',
-        subunit: 'فلوس',
-        rate: 1.0,
-        minRate: 1.0,
-        maxRate: 1.0,
-        isActive: true,
-      ),
-      Currency(
-        id: 5,
-        name: 'ريال سعودي',
-        code: 'SAR',
-        symbol: 'ر.س',
-        subunit: 'هللة',
-        rate: 250.0,
-        minRate: 248.0,
-        maxRate: 252.0,
-        isActive: true,
-      ),
-      Currency(
-        id: 6,
-        name: 'دولار أمريكي',
-        code: 'USD',
-        symbol: '\$',
-        subunit: 'سنت',
-        rate: 930.0,
-        minRate: 928.0,
-        maxRate: 935.0,
-        isActive: true,
-      ),
-      Currency(
-        id: 80,
-        name: 'يورو أوروبي',
-        code: 'EUR',
-        symbol: '€',
-        subunit: 'سنت',
-        rate: 1010.0,
-        minRate: 1000.0,
-        maxRate: 1020.0,
-        isActive: true,
-      ),
-    ];
-  }
-}
-
-class AccountTransaction {
-  final int id;
-  final DateTime date;
-  final double amount;
-  final String currency;
-  final double baseEquivalent;
-  final String details;
-  final bool isDeposit;
-
-  AccountTransaction({
-    required this.id,
-    required this.date,
-    required this.amount,
-    required this.currency,
-    required this.baseEquivalent,
-    required this.details,
-    required this.isDeposit,
-  });
-}
-
-class Currency {
-  final int id;
-  final String name;
-  final String code;
-  final String symbol;
-  final String subunit;
-  final double rate;
-  final double minRate;
-  final double maxRate;
-  bool isActive;
-
-  Currency({
-    required this.id,
-    required this.name,
-    required this.code,
-    required this.symbol,
-    required this.subunit,
-    required this.rate,
-    required this.minRate,
-    required this.maxRate,
-    required this.isActive,
-  });
+  Widget _kv(String k, String v) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(k, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      const SizedBox(height: 2),
+      Text(v, style: const TextStyle(fontWeight: FontWeight.w600)),
+    ],
+  );
 }
