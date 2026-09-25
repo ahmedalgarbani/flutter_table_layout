@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_table_layout/flutter_table_layout.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import 'advanced_tabs.dart';
 import 'demo_data.dart';
 
 void main() {
@@ -104,7 +105,7 @@ class DashboardHome extends StatefulWidget {
 class _DashboardHomeState extends State<DashboardHome>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController = TabController(
-    length: 2,
+    length: 4,
     vsync: this,
     initialIndex: widget.initialTab,
   );
@@ -202,9 +203,14 @@ class _DashboardHomeState extends State<DashboardHome>
         ],
         bottom: TabBar(
           controller: _tabController,
+          // Four tabs: scrollable so they fit on phones.
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: [
             Tab(text: _t('تفاصيل الحساب', 'Account details')),
             Tab(text: _t('إدارة العملات', 'Currencies')),
+            Tab(text: _t('شبكة متقدمة', 'Advanced grid')),
+            Tab(text: _t('بيانات السيرفر', 'Server data')),
           ],
         ),
       ),
@@ -231,7 +237,12 @@ class _DashboardHomeState extends State<DashboardHome>
         ),
         child: TabBarView(
           controller: _tabController,
-          children: [_buildTransactionsTab(), _buildCurrenciesTab()],
+          children: [
+            _buildTransactionsTab(),
+            _buildCurrenciesTab(),
+            EmployeesGridTab(theme: _resolveTheme(context)),
+            ServerDataTab(theme: _resolveTheme(context)),
+          ],
         ),
       ),
     );

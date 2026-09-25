@@ -179,4 +179,82 @@ void main() {
       },
     );
   });
+
+  testWidgets('advanced grid: frozen columns + filters', skip: !_enabled, (
+    t,
+  ) async {
+    await _shoot(
+      t,
+      'grid_frozen',
+      size: const Size(1100, 760),
+      tab: 2,
+      interact: (t) async {
+        // Filter + scroll horizontally: ID / Name stay frozen at the start,
+        // Actions at the end.
+        await t.enterText(find.byType(TextField).at(5), '>=3000');
+        await t.pump(const Duration(milliseconds: 400));
+        await t.pumpAndSettle();
+        await t.drag(find.text('City').first, const Offset(-260, 0));
+      },
+    );
+  });
+
+  testWidgets('advanced grid: grouping + inline editing', skip: !_enabled, (
+    t,
+  ) async {
+    await _shoot(
+      t,
+      'grid_grouping_editing',
+      size: const Size(1280, 760),
+      tab: 2,
+      interact: (t) async {
+        await t.tap(find.byTooltip('Group by'));
+        await t.pumpAndSettle();
+        await t.tap(find.text('Department').last);
+        await t.pumpAndSettle();
+        final salary = find
+            .byWidgetPredicate(
+              (w) =>
+                  w is Text &&
+                  RegExp(r'^\d{1,3}(,\d{3})*\.00$').hasMatch(w.data ?? ''),
+            )
+            .at(1);
+        await t.tap(salary);
+        await t.pump(const Duration(milliseconds: 50));
+        await t.tap(salary);
+        await t.pumpAndSettle();
+      },
+    );
+  });
+
+  testWidgets('server data', skip: !_enabled, (t) async {
+    await _shoot(
+      t,
+      'server_data',
+      size: const Size(1280, 700),
+      tab: 3,
+      interact: (t) async {
+        await t.pump(const Duration(milliseconds: 600));
+        await t.pumpAndSettle();
+        await t.tap(find.text('Salary'));
+        await t.pump(const Duration(milliseconds: 600));
+      },
+    );
+  });
+
+  testWidgets('mobile grouped rtl', skip: !_enabled, (t) async {
+    await _shoot(
+      t,
+      'mobile_grouped_rtl',
+      size: const Size(390, 844),
+      pixelRatio: 2,
+      locale: const Locale('ar', 'YE'),
+      tab: 2,
+      interact: (t) async {
+        await t.tap(find.byTooltip('تجميع حسب'));
+        await t.pumpAndSettle();
+        await t.tap(find.text('القسم').last);
+      },
+    );
+  });
 }

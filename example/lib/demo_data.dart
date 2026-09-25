@@ -178,3 +178,106 @@ List<Currency> generateCurrencies({required bool arabic}) {
     ),
   ];
 }
+
+class Employee {
+  final int id;
+  final String name;
+  final String department;
+  final String city;
+  final double salary;
+  final DateTime hiredOn;
+  final bool active;
+
+  const Employee({
+    required this.id,
+    required this.name,
+    required this.department,
+    required this.city,
+    required this.salary,
+    required this.hiredOn,
+    required this.active,
+  });
+
+  Employee copyWith({
+    String? name,
+    String? department,
+    String? city,
+    double? salary,
+    DateTime? hiredOn,
+    bool? active,
+  }) => Employee(
+    id: id,
+    name: name ?? this.name,
+    department: department ?? this.department,
+    city: city ?? this.city,
+    salary: salary ?? this.salary,
+    hiredOn: hiredOn ?? this.hiredOn,
+    active: active ?? this.active,
+  );
+}
+
+const departmentsEn = ['Sales', 'Engineering', 'Finance', 'Support', 'HR'];
+const departmentsAr = [
+  'المبيعات',
+  'الهندسة',
+  'المالية',
+  'الدعم',
+  'الموارد البشرية',
+];
+
+/// Deterministic pseudo-random employees (no dart:math Random, so the
+/// screenshots are stable).
+List<Employee> generateEmployees(int count, {required bool arabic}) {
+  const firstEn = [
+    'Ahmed',
+    'Sara',
+    'Omar',
+    'Lina',
+    'Yousef',
+    'Mona',
+    'Khaled',
+    'Huda',
+    'Ali',
+    'Reem',
+  ];
+  const firstAr = [
+    'أحمد',
+    'سارة',
+    'عمر',
+    'لينا',
+    'يوسف',
+    'منى',
+    'خالد',
+    'هدى',
+    'علي',
+    'ريم',
+  ];
+  const lastEn = [
+    'Hassan',
+    'Saleh',
+    'Nasser',
+    'Qasim',
+    'Farouk',
+    'Aziz',
+    'Mansour',
+  ];
+  const lastAr = ['حسن', 'صالح', 'ناصر', 'قاسم', 'فاروق', 'عزيز', 'منصور'];
+  const citiesEn = ["Sana'a", 'Aden', 'Taiz', 'Riyadh', 'Dubai', 'Cairo'];
+  const citiesAr = ['صنعاء', 'عدن', 'تعز', 'الرياض', 'دبي', 'القاهرة'];
+  final first = arabic ? firstAr : firstEn;
+  final last = arabic ? lastAr : lastEn;
+  final cities = arabic ? citiesAr : citiesEn;
+  final depts = arabic ? departmentsAr : departmentsEn;
+  return [
+    for (var i = 1; i <= count; i++)
+      Employee(
+        id: i,
+        name: '${first[(i * 7) % first.length]} ${last[(i * 3) % last.length]}',
+        department: depts[(i * 7 + i ~/ 3) % depts.length],
+        city: cities[(i * 11) % cities.length],
+        salary: 800 + ((i * 37) % 60) * 50.0,
+        hiredOn: DateTime(2015 + (i % 11), 1 + (i % 12), 1 + (i % 27)),
+        active: i % 7 != 0,
+      ),
+  ];
+}
