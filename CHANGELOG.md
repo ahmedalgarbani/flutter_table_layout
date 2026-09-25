@@ -34,6 +34,20 @@ keeps compiling, and the original tests pass unchanged.
 * Removed dead placeholder code in `FilterItemsUseCase.execute`, which now works and sorts.
 * Fixed every analyzer deprecation (`withOpacity`, `dart:html`, `Share.shareXFiles`, `DropdownButtonFormField.value`, `Switch.activeColor`).
 
+### Advanced grid (new)
+* **Frozen columns:** `pin: ColumnPin.start / end`, pin/unpin from the columns menu, LTR and RTL. Implemented with a custom `RenderPinnedRow`.
+* **Sticky header + virtualized rows:** `bodyHeight` / `fillHeight`. Only visible rows are built (tested with 100,000 rows).
+* **Column resize** (drag the header edge, double-click to reset), **drag & drop reorder** (long-press), and "Reset columns".
+* **Per-column filter row** (`showColumnFilters`) with `ColumnFilterMatcher` expressions (`>10`, `10..20`, `=x`, `!=x`, `!x`, dates, `a, b`).
+* **Multi-column sort** (Shift + click, `setSorts`, `addSort`) with level badges.
+* **Row grouping** (`groupByColumnId`, collapsible groups, `groupHeaderBuilder` with `TableGroupInfo`), on desktop and mobile.
+* **Inline cell editing** (`isEditable`, `CellEditor.text / number / dropdown / date / boolean`, `cellValidator`, `onCellEdited`, `canEditCell`), with Enter / Tab / Escape.
+* **Keyboard navigation**: arrows, Enter / F2, Space, Tab, Home / End, Page Up / Down, Ctrl + A, Escape.
+* **Server-side data:** `AdaptiveTableDataSource` / `TableDataPage`, stale-response protection, automatic last-page clamping, and a Retry button on errors.
+* `TableStateModel` gained `additionalSorts`, `columnFilters`, `groupByColumnId`, `sorts`. `TableLoaded` gained `columnWidths`, `columnOrder`, `columnPins`, `collapsedGroups`, `isFetching`, `arrange()` and `pinOf()`.
+* Mobile cards are virtualized too when the table has a bounded height.
+* Exports follow the user's column order.
+
 ### New
 * `layoutMode` (`TableLayoutMode.auto` / `table` / `cards`) to force the grid on phones or cards on desktop.
 * `onExportRequested` / `onPrintRequested` to plug in your own export and print implementations.
@@ -57,7 +71,7 @@ keeps compiling, and the original tests pass unchanged.
 * `saveAndShareFile` returns `Future<String?>` (the saved path or file name).
 
 ### Project
-* 74 unit and widget tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
+* 111 package tests + 6 example smoke tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
 
 ## 0.0.2
 

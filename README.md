@@ -2,6 +2,8 @@
 
 **Adaptive data tables for Flutter.** One widget gives you a dense data grid on desktop and web, and expandable cards on phones. It comes with search, date and custom filters, sorting, pagination, selection, summaries, Excel / Word / PDF export, printing, auto-generated CRUD forms, five themes, and full RTL (Arabic) support.
 
+The grid also covers the "spreadsheet" features: **frozen columns, sticky header with virtualized rows (100k+ rows), column resize and drag & drop reorder, a per-column filter row, multi-column sort, row grouping, inline cell editing, keyboard navigation, and server-side data sources.**
+
 <p align="center">
   <img src="doc/screenshots/desktop_light.png" alt="Desktop data grid" width="780">
 </p>
@@ -27,11 +29,22 @@
 - [Controlling the table from outside](#controlling-the-table-from-outside)
 - [Loading and empty states](#loading-and-empty-states)
 - [Layout mode (grid or cards)](#layout-mode-grid-or-cards)
+- [Advanced grid](#advanced-grid)
+  - [Sticky header and virtualization](#sticky-header-and-virtualization-large-data)
+  - [Frozen columns](#frozen-columns)
+  - [Resize and reorder columns](#resize-and-reorder-columns)
+  - [Per-column filter row](#per-column-filter-row)
+  - [Multi-column sort](#multi-column-sort)
+  - [Row grouping](#row-grouping)
+  - [Inline cell editing](#inline-cell-editing)
+  - [Keyboard navigation](#keyboard-navigation)
+  - [Server-side data](#server-side-data)
 - [Export and printing](#export-and-printing)
 - [Dynamic forms (CRUD)](#dynamic-forms-crud)
 - [Hiding features and permissions](#hiding-features-and-permissions)
 - [Themes](#themes)
 - [Localization and RTL](#localization-and-rtl)
+- [Comparison with other packages](#comparison-with-other-packages)
 - [API reference](#api-reference)
 - [Using the logic without the UI](#using-the-logic-without-the-ui)
 - [Running the example and tests](#running-the-example-and-tests)
@@ -55,6 +68,15 @@
 | 📝 **Dynamic forms** | Generate add/edit dialogs from your columns, with validation and typed values. |
 | 🎨 **Themes** | `adaptive`, `light`, `dark`, `glassmorphic`, `gradient`, `cozy`. It's a `ThemeExtension`, so you can register it once for the whole app. |
 | 🌍 **i18n and RTL** | English and Arabic built in, every string can be overridden, and layout, alignment and icons mirror in RTL. |
+| 🧊 **Frozen columns** | Pin columns at the start or end (`pin: ColumnPin.start`); users can pin from the columns menu. LTR and RTL. |
+| 🚀 **Large data** | `bodyHeight` / `fillHeight`: sticky header and lazily built rows. Tested with 100,000 rows. |
+| ↔️ **Column layout** | Resize by dragging the header edge (double-click resets), reorder by long-press + drag, "Reset columns". |
+| 🧪 **Column filters** | A filter row under the header: `text`, `=x`, `!=x`, `>10`, `<=5`, `10..20`, `a, b`, dates `>=2026-01-01`. |
+| 🔢 **Multi-sort** | Shift + click adds secondary sort levels, shown as 1, 2, 3 in the header. |
+| 🗂️ **Grouping** | `groupByColumnId`, collapsible groups, per-group aggregates via `groupHeaderBuilder`. |
+| ✏️ **Inline editing** | Double-click or Enter to edit text, number, dropdown, date or boolean cells, with validation and per-cell permissions. |
+| ⌨️ **Keyboard** | Arrows, Enter/F2, Tab, Space, Home/End, Page Up/Down, Ctrl+A, Escape. |
+| ☁️ **Server-side** | `AdaptiveTableDataSource`: search, filters, sort and paging are sent to your API. Stale responses are ignored. |
 | 🕹️ **Controller** | `AdaptiveTableController` to search, filter, sort, paginate and select from anywhere. |
 
 ## Installation
@@ -159,6 +181,13 @@ class InvoicesPage extends StatelessWidget {
 | `isHideable` | `true` | Whether users may hide the column. The last visible column can never be hidden. |
 | `isSearchable` | `true` | Include in global search. |
 | `isExportable` | `true` | Include in exports and printing. Set `false` for action columns. |
+| `pin` | `ColumnPin.none` | Freeze at the `start` or `end` (desktop grid). |
+| `minWidth` | `60` | Smallest width when resizing or squeezing. |
+| `isResizable` | `true` | Allow resizing by dragging the header edge. |
+| `isFilterable` | `true` | Show a field in the per-column filter row. |
+| `isEditable` | `false` | Allow inline editing (with `onCellEdited`). |
+| `editor` | inferred | `CellEditor.text / number / dropdown(options) / date / boolean`. |
+| `cellValidator` | `null` | Validates inline edits. Return an error message to keep the editor open. |
 
 ```dart
 AdaptiveTableColumn<Currency>(
@@ -276,6 +305,11 @@ controller.sortBy('total', ascending: false);
 controller.goToPage(2);
 controller.setColumnVisibility('notes', false);
 controller.selectAll();
+controller.setColumnFilter('total', '>100');
+controller.addSort('date');                  // secondary sort level
+controller.groupBy('customer');
+controller.setColumnPin('customer', ColumnPin.start);
+controller.refresh();                        // reload (server mode)
 
 final rows = controller.filteredItems;   // all pages, filtered and sorted
 final picked = controller.selectedItems;
@@ -308,6 +342,208 @@ AdaptiveTableLayout<T>(
 ```
 
 The toolbar and footer always adapt to the available width, whatever the mode.
+
+## Advanced grid
+
+<p align="center"><img src="doc/screenshots/grid_frozen.png" alt="Frozen columns and per-column filters" width="760"></p>
+
+Everything below works on desktop and web. On phones the same table switches to cards, with grouping and virtualization still working.
+
+### Sticky header and virtualization (large data)
+
+Give the rows a bounded height and only the visible rows are built, while the header stays on top:
+
+```dart
+// A fixed rows area…
+AdaptiveTableLayout<Employee>(
+  items: employees,            // e.g. 100,000 rows
+  showPagination: false,       // one long, lazily built list
+  bodyHeight: 520,
+  columns: columns,
+  valueProviders: providers,
+)
+
+// …or fill the parent (Expanded, SizedBox, a TabBarView page…)
+Expanded(
+  child: AdaptiveTableLayout<Employee>(
+    fillHeight: true,
+    items: employees,
+    columns: columns,
+    valueProviders: providers,
+  ),
+)
+```
+
+`fillHeight` is ignored (with a debug message) when the parent height is unbounded, for example inside a `SingleChildScrollView`.
+
+### Frozen columns
+
+```dart
+AdaptiveTableColumn(id: 'id', title: 'ID', width: 80, pin: ColumnPin.start),
+AdaptiveTableColumn(id: 'name', title: 'Name', width: 200, pin: ColumnPin.start),
+// … scrollable columns …
+AdaptiveTableColumn(id: 'actions', title: 'Actions', width: 110, pin: ColumnPin.end),
+```
+
+- Pinned columns stay visible while the other columns scroll horizontally. `start` and `end` follow the text direction.
+- The selection and expand columns are always pinned.
+- Users can pin or unpin any column from the 📌 button in the columns menu, or you can call `controller.setColumnPin('city', ColumnPin.start)`.
+
+### Resize and reorder columns
+
+- **Resize:** drag the right edge of a header. Double-click the edge to restore the declared width.
+- **Reorder:** long-press a header, then drag it onto another header.
+- **Reset:** the columns menu has a "Reset columns" item, or call `controller.resetColumnLayout()`.
+
+```dart
+AdaptiveTableLayout<T>(
+  allowColumnResize: true,   // default
+  allowColumnReorder: true,  // default
+  columns: [
+    AdaptiveTableColumn(id: 'notes', title: 'Notes', minWidth: 120),
+    AdaptiveTableColumn(id: 'actions', title: '', isResizable: false),
+  ],
+)
+// From code:
+controller.setColumnWidth('notes', 300);
+controller.moveColumn('salary', beforeColumnId: 'name');
+```
+
+### Per-column filter row
+
+```dart
+AdaptiveTableLayout<T>(showColumnFilters: true, /* … */)
+```
+
+| Type in a column filter | Keeps rows where the value… |
+|---|---|
+| `acme` | contains "acme" (case-insensitive) |
+| `=paid` / `!=paid` | equals / differs |
+| `!test` | does not contain "test" |
+| `>1000`, `>=1000`, `<50`, `<=50` | compares as a number, date or text |
+| `100..500` | is within the range (inclusive) |
+| `>=2026-01-01` | is on or after a date |
+| `USD, SAR` | matches any of the parts (OR) |
+
+Column filters combine with each other and with the search box using AND. Set `isFilterable: false` to skip a column. From code: `controller.setColumnFilter('salary', '>=3000')`. The expressions are also sent to your server in `TableStateModel.columnFilters`.
+
+### Multi-column sort
+
+Click a header to sort, and **Shift + click** other headers to add secondary sort levels, shown as 1, 2… next to the arrow. From code:
+
+```dart
+controller.setSorts(const [ColumnSort('department'), ColumnSort('salary', ascending: false)]);
+controller.addSort('name');
+```
+
+### Row grouping
+
+<p align="center">
+  <img src="doc/screenshots/grid_grouping_editing.png" alt="Grouping and inline editing" width="600">
+  &nbsp;
+  <img src="doc/screenshots/mobile_grouped_rtl.png" alt="Grouped cards on a phone (Arabic)" width="200">
+</p>
+
+```dart
+AdaptiveTableLayout<Employee>(
+  groupByColumnId: 'department',               // or controller.groupBy('city')
+  groupHeaderBuilder: (context, group) => Text(
+    'Avg: ${group.rows.map((e) => e.salary).reduce((a, b) => a + b) / group.rows.length}',
+  ),
+)
+```
+
+- Click a group header to collapse or expand it.
+- `group.rows` holds every row of the group across all pages, so aggregates cover the whole group.
+- Rows are ordered by the group column first, then by the user's sort.
+
+### Inline cell editing
+
+```dart
+AdaptiveTableLayout<Employee>(
+  items: employees,
+  columns: [
+    AdaptiveTableColumn(id: 'name', title: 'Name', isEditable: true,
+        cellValidator: (v) => (v as String).trim().isEmpty ? 'Required' : null),
+    AdaptiveTableColumn(id: 'salary', title: 'Salary', isEditable: true), // number editor (inferred)
+    AdaptiveTableColumn(id: 'dept', title: 'Department', isEditable: true,
+        editor: const CellEditor.dropdown(['Sales', 'IT', 'HR'])),
+    AdaptiveTableColumn(id: 'hiredOn', title: 'Hired', isEditable: true), // date picker (inferred)
+    AdaptiveTableColumn(id: 'active', title: 'Active', isEditable: true), // toggles on double-click
+  ],
+  // Permissions: per row / per column.
+  canEditCell: (e, column) => user.canEdit && e.isActive,
+  // Save the change. Return false (or throw) to reject it.
+  onCellEdited: (e, column, value) async {
+    final ok = await api.update(e.id, {column: value});
+    if (ok) setState(() => employees = [for (final x in employees) x.id == e.id ? x.copyWith(column, value) : x]);
+    return ok;
+  },
+)
+```
+
+| Action | Result |
+|---|---|
+| Double-click, Enter or F2 | Start editing |
+| Enter | Save |
+| Tab / Shift+Tab | Save and edit the next / previous cell |
+| Escape | Cancel |
+| Click outside | Save |
+
+The editor is inferred from the value (`num` → number, `DateTime` → date picker, `bool` → toggle, otherwise text) unless you set `editor`. Numbers accept `1,250.5`. Invalid values keep the editor open with an error.
+
+### Keyboard navigation
+
+Click a cell, then:
+
+| Key | Action |
+|---|---|
+| ← → ↑ ↓ | Move between cells (mirrored in RTL) |
+| Enter / F2 | Edit, or run `onRowTap` / expand the row |
+| Space | Select the row |
+| Home / End (+Ctrl) | First / last column (row) |
+| Page Up / Page Down | Previous / next page |
+| Ctrl/Cmd + A | Select all |
+| Escape | Leave the cell |
+
+Turn it off with `enableKeyboardNavigation: false`.
+
+### Server-side data
+
+<p align="center"><img src="doc/screenshots/server_data.png" alt="Server-side data source" width="760"></p>
+
+```dart
+class _InvoicesState extends State<InvoicesPage> {
+  // Create the source once, not in build().
+  late final source = AdaptiveTableDataSource<Invoice>.fromCallback((q) async {
+    final res = await api.getInvoices(
+      page: q.currentPage,
+      size: q.pageSize,
+      search: q.searchQuery,
+      sort: [for (final s in q.sorts) '${s.columnId}:${s.ascending ? 'asc' : 'desc'}'],
+      filters: q.columnFilters,   // {'total': '>100', 'status': '=paid'}
+      from: q.startDate, to: q.endDate,
+    );
+    return TableDataPage(items: res.items, totalCount: res.total);
+  });
+
+  @override
+  Widget build(BuildContext context) => AdaptiveTableLayout<Invoice>(
+    dataSource: source,            // `items` is not needed
+    columns: columns,
+    valueProviders: providers,
+    showColumnFilters: true,
+    fillHeight: true,
+  );
+}
+```
+
+- Every change to the search, filters, sort, page or page size calls `fetch`.
+- A progress bar shows while a request is in flight, and out-of-order responses are ignored.
+- On error, the table shows a **Retry** button (`controller.refresh()` also reloads).
+- If the server has fewer pages than the current page, the table moves to the last page automatically.
+- Selection and exports work on the rows of the current page. Use `onExportRequested` for server-side exports.
+- **Tip:** `FilterItemsUseCase` is pure Dart, so your Dart backend can run exactly the same filtering and sorting.
 
 ## Export and printing
 
@@ -492,6 +728,37 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 - The older `searchHint`, `dateFromLabel`, `dateToLabel` and `queryButtonLabel` parameters still work and override the labels.
 - In RTL, the layout, column alignments, pagination arrows and expand icons are mirrored, Excel sheets are right-to-left, and Word/PDF documents use `dir="rtl"`.
 
+## Comparison with other packages
+
+✅ built in · 🟡 partial / needs extra work · ❌ not available. The other packages' columns are based on their public documentation. Check their latest versions before deciding.
+
+| Feature | **flutter_table_layout** | PlutoGrid / TrinaGrid | Syncfusion DataGrid | data_table_2 | PaginatedDataTable |
+|---|---|---|---|---|---|
+| License | **MIT (free)** | MIT | Commercial (free community license with conditions) | MIT | Flutter SDK |
+| Automatic mobile cards layout | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Arabic / RTL with ready-made labels | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Global search box | ✅ | ✅ | 🟡 | ❌ | ❌ |
+| Date-range filter | ✅ | 🟡 | 🟡 | ❌ | ❌ |
+| Per-column filter row | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Multi-column sort | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Pagination | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Virtualized rows / sticky header | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Frozen columns (start / end) | ✅ | ✅ | ✅ | 🟡 (start) | ❌ |
+| Resize / reorder columns | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Row grouping | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Inline cell editing | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Keyboard navigation | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Server-side data source | ✅ | ✅ | ✅ | ✅ | 🟡 |
+| Excel + Word + PDF export, print | ✅ built in | 🟡 add-on | 🟡 add-on | ❌ | ❌ |
+| Auto-generated add / edit forms | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Summary row + group aggregates | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Ready-made themes | ✅ 6 | ✅ | ✅ | 🟡 | 🟡 |
+| External controller | ✅ | ✅ | ✅ | 🟡 | 🟡 |
+
+**Where this package is stronger:** it's the only one that turns into cards on phones automatically, it ships Arabic out of the box, exports to Excel, Word and PDF and prints without add-ons, and generates CRUD forms from your columns. All of that sits in one MIT-licensed widget, with the same API on phone, tablet, desktop and web.
+
+**Where the others are still ahead:** Excel-style clipboard copy/paste, multi-cell range selection, row drag & drop, stacked (multi-level) headers, tree data, and cell merging. These are not implemented here yet.
+
 ## API reference
 
 ### `AdaptiveTableLayout<T>`
@@ -521,6 +788,14 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `layoutMode` | `TableLayoutMode` | `auto` | `auto`, `table` (always grid), `cards` (always cards). |
 | `mobileBreakpoint` / `minDesktopWidth` | `double` | `600` / `800` | Layout thresholds. |
 | `onExportRequested` / `onPrintRequested` | callbacks | `null` | Replace the built-in export / print with your own. |
+| `dataSource` | `AdaptiveTableDataSource<T>?` | `null` | Server-side mode (`items` not needed). |
+| `bodyHeight` / `fillHeight` | `double?` / `bool` | `null` / `false` | Sticky header + virtualized rows. |
+| `showColumnFilters` | `bool` | `false` | Filter row under the header. |
+| `allowColumnResize` / `allowColumnReorder` | `bool` | `true` / `true` | Column layout by the user. |
+| `enableKeyboardNavigation` | `bool` | `true` | Keyboard control of the grid. |
+| `groupByColumnId` / `groupHeaderBuilder` | | `null` | Row grouping and group aggregates. |
+| `onCellEdited` / `canEditCell` | callbacks | `null` | Inline editing and per-cell permission. |
+| `minRowHeight` | `double` | `0` | Minimum desktop row height. |
 | `mobileTitleColumnId` / `mobileSubtitleColumnId` | `String?` | first / second column | Card title and subtitle. |
 | `theme` / `labels` | | `AdaptiveTableTheme.of` / `AdaptiveTableLabels.of` | Styling and strings. |
 | `searchDebounce` | `Duration` | `250ms` | Search delay. |
@@ -566,7 +841,7 @@ flutter test test/screenshots_test.dart --update-goldens \
 
 **flutter_table_layout** مكتبة جداول ذكية لـ Flutter. تعرض البيانات كجدول كامل على الكمبيوتر والويب، وتحوّلها تلقائياً إلى بطاقات قابلة للتوسيع على الجوال. تدعم العربية واتجاه RTL بالكامل.
 
-**أهم المزايا:**
+**أهم المزايا:** (ومعها تثبيت الأعمدة، والتعديل المباشر، والتجميع، والفلترة لكل عمود، والبيانات من السيرفر)
 - بحث فوري، وفلترة بالتاريخ (من / إلى)، وفلاتر مخصصة، وزر لمسح الفلاتر.
 - فرز ثابت يفهم الأرقام والنصوص والتواريخ، وترقيم صفحات بأرقام وعدد صفوف قابل للتغيير.
 - تحديد الصفوف مع استدعاء `onSelectionChanged`، وصفوف قابلة للتوسيع لعرض التفاصيل، وصف ملخص للإجماليات.
@@ -600,6 +875,22 @@ AdaptiveTableLayout<Transaction>(
 ```
 
 لتظهر النصوص بالعربية، اضبط لغة التطبيق على `ar` (مع `flutter_localizations`)، أو مرّر `labels: AdaptiveTableLabels.ar`.
+
+**ميزات الشبكة المتقدمة (باختصار):**
+
+| الميزة | طريقة الاستخدام |
+|---|---|
+| تثبيت أعمدة | `pin: ColumnPin.start` أو `ColumnPin.end` في العمود، أو زر 📌 في قائمة الأعمدة |
+| بيانات ضخمة مع رأس ثابت | `bodyHeight: 500` أو `fillHeight: true` مع `showPagination: false` |
+| تغيير عرض الأعمدة وترتيبها | اسحب حافة رأس العمود، أو اضغط مطولاً على الرأس واسحبه |
+| فلتر لكل عمود | `showColumnFilters: true`، ثم اكتب مثلاً `>1000` أو `100..500` أو `=مدفوع` |
+| فرز بأكثر من عمود | Shift + نقر على رؤوس الأعمدة |
+| تجميع الصفوف | `groupByColumnId: 'department'` و`groupHeaderBuilder` للإجماليات |
+| التعديل المباشر | `isEditable: true` في العمود + `onCellEdited` + `canEditCell` للصلاحيات |
+| لوحة المفاتيح | الأسهم وEnter وTab وEsc وSpace |
+| بيانات من السيرفر | `dataSource: AdaptiveTableDataSource.fromCallback((q) async => ...)` |
+
+دليل الاستخدام الكامل بالعربية في [`doc/USAGE_AR.md`](doc/USAGE_AR.md).
 
 ---
 
