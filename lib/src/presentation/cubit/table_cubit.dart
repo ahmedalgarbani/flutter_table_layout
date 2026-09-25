@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../domain/datasource/table_data_source.dart';
 import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_state_model.dart';
 import '../../domain/usecases/filter_items_usecase.dart';
@@ -12,6 +15,10 @@ import 'table_cubit_state.dart';
 /// It keeps its own copy of the items, query state, selection and hidden
 /// columns, so it never mutates the lists you pass in, and a failing
 /// `valueProvider` emits [TableError] without losing the last good state.
+///
+/// With a [dataSource] the cubit works in *server mode*: every query change
+/// (search, filters, sort, page…) calls `dataSource.fetch` and the returned
+/// page is displayed as-is. Out-of-order responses are ignored.
 class TableCubit<T> extends Cubit<TableCubitState<T>> {
   List<ColumnDefinition> _columns;
   Map<String, dynamic Function(T)> _valueProviders;
@@ -25,6 +32,16 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   List<T> _selected = const [];
   List<String> _hidden;
   List<T> _expanded = const [];
+  Map<String, double> _widths = const {};
+  List<String> _order = const [];
+  Map<String, ColumnPin> _pins = const {};
+  Set<String> _collapsed = const {};
+
+  AdaptiveTableDataSource<T>? _dataSource;
+  List<T> _remoteItems = const [];
+  int _remoteTotal = 0;
+  bool _fetching = false;
+  int _requestId = 0;
 
   TableCubit({
     required List<T> items,
@@ -34,7 +51,9 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     bool Function(T, Map<String, dynamic>)? customFilterMatcher,
     FilterItemsUseCase filterUseCase = const FilterItemsUseCase(),
     TableStateModel initialTableState = const TableStateModel(),
-  }) : _columns = List.unmodifiable(columns),
+    AdaptiveTableDataSource<T>? dataSource,
+  }) : _dataSource = dataSource,
+       _columns = List.unmodifiable(columns),
        _valueProviders = Map.unmodifiable(valueProviders),
        _dateProvider = dateProvider,
        _customFilterMatcher = customFilterMatcher,
@@ -69,6 +88,12 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   List<ColumnDefinition> get visibleColumns =>
       _columns.where((c) => !_hidden.contains(c.id)).toList();
 
+  /// Whether rows come from a server-side [AdaptiveTableDataSource].
+  bool get isRemote => _dataSource != null;
+
+  /// Whether a server request is in flight.
+  bool get isFetching => _fetching;
+
   // --- Data & configuration ---
 
   /// Sets or updates the raw dataset items and recalculates output.
@@ -96,7 +121,14 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     bool clearDateProvider = false,
     bool Function(T, Map<String, dynamic>)? customFilterMatcher,
     bool clearCustomFilterMatcher = false,
+    AdaptiveTableDataSource<T>? dataSource,
+    bool clearDataSource = false,
   }) {
+    var refetch = false;
+    if (dataSource != null || clearDataSource) {
+      refetch = !identical(dataSource, _dataSource);
+      _dataSource = dataSource;
+    }
     if (columns != null) {
       final oldIds = _columns.map((c) => c.id).toSet();
       final ids = columns.map((c) => c.id).toSet();
@@ -124,10 +156,15 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     }
     if (items != null) {
       setItems(items);
-    } else {
+    } else if (!isRemote || refetch) {
       _recompute();
+    } else {
+      _emitCurrent();
     }
   }
+
+  /// Re-runs the query (server mode: fetches the current page again).
+  void refresh() => _recompute();
 
   // --- Filtering ---
 
@@ -183,9 +220,59 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
         clearStartDate: true,
         clearEndDate: true,
         customFilters: const {},
+        columnFilters: const {},
         currentPage: 1,
       ),
     );
+  }
+
+  /// Sets (or clears, when empty / `null`) the filter expression of one
+  /// column. See `ColumnFilterMatcher` for the syntax.
+  void setColumnFilter(String columnId, String? expression) {
+    final next = Map<String, String>.of(_tableState.columnFilters);
+    if (expression == null || expression.trim().isEmpty) {
+      if (next.remove(columnId) == null) return;
+    } else {
+      if (next[columnId] == expression) return;
+      next[columnId] = expression;
+    }
+    _update(_tableState.copyWith(columnFilters: next, currentPage: 1));
+  }
+
+  /// Clears every per-column filter.
+  void clearColumnFilters() {
+    if (_tableState.columnFilters.isEmpty) return;
+    _update(_tableState.copyWith(columnFilters: const {}, currentPage: 1));
+  }
+
+  // --- Grouping ---
+
+  /// Groups rows by [columnId] (`null` removes the grouping).
+  void groupBy(String? columnId) {
+    _collapsed = const {};
+    _update(
+      _tableState.copyWith(
+        groupByColumnId: columnId,
+        clearGroup: columnId == null,
+        currentPage: 1,
+      ),
+    );
+  }
+
+  /// Collapses / expands the group whose key is [groupKey].
+  void toggleGroupCollapsed(String groupKey) {
+    _collapsed = Set.unmodifiable(
+      _collapsed.contains(groupKey)
+          ? _collapsed.difference({groupKey})
+          : {..._collapsed, groupKey},
+    );
+    _emitCurrent();
+  }
+
+  /// Collapses the given groups (or expands all when [groupKeys] is empty).
+  void setCollapsedGroups(Iterable<String> groupKeys) {
+    _collapsed = Set.unmodifiable(groupKeys.toSet());
+    _emitCurrent();
   }
 
   /// Restores the initial state passed to the constructor (filters, sort,
@@ -193,21 +280,68 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   void resetAll() {
     _selected = const [];
     _expanded = const [];
+    _collapsed = const {};
     _update(_initialTableState);
   }
 
   // --- Sorting ---
 
   /// Sorts by the specified column, or toggles ascending/descending.
-  void toggleSort(String columnId) {
+  ///
+  /// With [additive] (Shift + click) the column is added as a secondary
+  /// sort level instead of replacing the current sort; clicking it again
+  /// toggles its direction.
+  void toggleSort(String columnId, {bool additive = false}) {
+    if (additive && _tableState.sortByColumnId != null) {
+      final sorts = _tableState.sorts;
+      final index = sorts.indexWhere((s) => s.columnId == columnId);
+      final next = [...sorts];
+      if (index == -1) {
+        next.add(ColumnSort(columnId));
+      } else {
+        next[index] = next[index].toggled();
+      }
+      _setSorts(next);
+      return;
+    }
     final isSameCol = _tableState.sortByColumnId == columnId;
     sortBy(columnId, ascending: isSameCol ? !_tableState.sortAscending : true);
   }
 
-  /// Sorts by [columnId] in the given direction.
-  void sortBy(String columnId, {bool ascending = true}) {
+  /// Sorts by [columnId] in the given direction. With [additive] the column
+  /// is appended as another sort level.
+  void sortBy(String columnId, {bool ascending = true, bool additive = false}) {
+    if (additive && _tableState.sortByColumnId != null) {
+      final next = [
+        ..._tableState.sorts.where((s) => s.columnId != columnId),
+        ColumnSort(columnId, ascending: ascending),
+      ];
+      _setSorts(next);
+      return;
+    }
     _update(
-      _tableState.copyWith(sortByColumnId: columnId, sortAscending: ascending),
+      _tableState.copyWith(
+        sortByColumnId: columnId,
+        sortAscending: ascending,
+        additionalSorts: const [],
+      ),
+    );
+  }
+
+  /// Replaces every sort level at once (first = primary).
+  void setSorts(List<ColumnSort> sorts) => _setSorts(sorts);
+
+  void _setSorts(List<ColumnSort> sorts) {
+    if (sorts.isEmpty) {
+      _update(_tableState.copyWith(clearSort: true));
+      return;
+    }
+    _update(
+      _tableState.copyWith(
+        sortByColumnId: sorts.first.columnId,
+        sortAscending: sorts.first.ascending,
+        additionalSorts: sorts.skip(1).toList(),
+      ),
     );
   }
 
@@ -255,6 +389,69 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     }
     // Hidden columns are excluded from search, so the result may change.
     _recompute();
+  }
+
+  /// Sets a column width (e.g. after dragging its header edge).
+  void setColumnWidth(String columnId, double width) {
+    final col = _columns.where((c) => c.id == columnId).firstOrNull;
+    final w = width < (col?.minWidth ?? 0) ? col!.minWidth : width;
+    if (_widths[columnId] == w) return;
+    _widths = Map.unmodifiable({..._widths, columnId: w});
+    _emitCurrent();
+  }
+
+  /// Restores the declared width of one column, or of all when [columnId]
+  /// is `null`.
+  void resetColumnWidths([String? columnId]) {
+    if (columnId == null) {
+      _widths = const {};
+    } else {
+      _widths = Map.unmodifiable({..._widths}..remove(columnId));
+    }
+    _emitCurrent();
+  }
+
+  /// Moves [columnId] so that it is displayed right before [beforeColumnId]
+  /// (or last when [beforeColumnId] is `null`).
+  void moveColumn(String columnId, {String? beforeColumnId}) {
+    if (columnId == beforeColumnId) return;
+    final ids = _currentOrder()..remove(columnId);
+    final index = beforeColumnId == null ? -1 : ids.indexOf(beforeColumnId);
+    if (index == -1) {
+      ids.add(columnId);
+    } else {
+      ids.insert(index, columnId);
+    }
+    setColumnOrder(ids);
+  }
+
+  /// Replaces the column display order.
+  void setColumnOrder(List<String> columnIds) {
+    _order = List.unmodifiable(columnIds);
+    _emitCurrent();
+  }
+
+  /// Freezes a column at the start / end, or unfreezes it.
+  void setColumnPin(String columnId, ColumnPin pin) {
+    _pins = Map.unmodifiable({..._pins, columnId: pin});
+    _emitCurrent();
+  }
+
+  /// Restores declared widths, order and frozen positions.
+  void resetColumnLayout() {
+    _widths = const {};
+    _order = const [];
+    _pins = const {};
+    _emitCurrent();
+  }
+
+  List<String> _currentOrder() {
+    final declared = _columns.map((c) => c.id).toList();
+    if (_order.isEmpty) return declared;
+    return [
+      ..._order.where(declared.contains),
+      ...declared.where((id) => !_order.contains(id)),
+    ];
   }
 
   // --- Selection ---
@@ -328,6 +525,10 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   TableQueryResult<T>? _lastResult;
 
   void _recompute() {
+    if (_dataSource != null) {
+      unawaited(_fetch());
+      return;
+    }
     try {
       final result = _filterUseCase.apply<T>(
         items: _items,
@@ -360,7 +561,68 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     }
   }
 
+  Future<void> _fetch() async {
+    final source = _dataSource;
+    if (source == null || isClosed) return;
+    final requestId = ++_requestId;
+    final query = _tableState;
+    _fetching = true;
+    _emitRemote();
+    try {
+      final page = await source.fetch(query);
+      if (isClosed || requestId != _requestId) return; // stale response
+      _remoteItems = List.unmodifiable(page.items);
+      _remoteTotal = page.totalCount < 0 ? 0 : page.totalCount;
+      final totalPages = _remoteTotalPages;
+      if (query.isPaginated &&
+          _remoteTotal > 0 &&
+          query.currentPage > totalPages) {
+        // The requested page no longer exists (e.g. after a filter).
+        _tableState = _tableState.copyWith(currentPage: totalPages);
+        unawaited(_fetch());
+        return;
+      }
+      _fetching = false;
+      _emitRemote();
+    } catch (e, st) {
+      if (isClosed || requestId != _requestId) return;
+      _fetching = false;
+      emit(TableError<T>('Failed to load data: $e', error: e, stackTrace: st));
+      if (kDebugMode) debugPrint('TableCubit: $e\n$st');
+    }
+  }
+
+  int get _remoteTotalPages => !_tableState.isPaginated || _remoteTotal == 0
+      ? 1
+      : (_remoteTotal / _tableState.pageSize).ceil();
+
+  void _emitRemote() {
+    if (isClosed) return;
+    emit(
+      TableLoaded<T>(
+        originalItems: _remoteItems,
+        filteredAndSortedItems: _remoteItems,
+        paginatedItems: _remoteItems,
+        totalCount: _remoteTotal,
+        totalPages: _remoteTotalPages,
+        tableState: _tableState,
+        selectedItems: _selected,
+        hiddenColumnIds: _hidden,
+        expandedItems: _expanded,
+        columnWidths: _widths,
+        columnOrder: _order,
+        columnPins: _pins,
+        collapsedGroups: _collapsed,
+        isFetching: _fetching,
+      ),
+    );
+  }
+
   void _emitCurrent() {
+    if (_dataSource != null) {
+      _emitRemote();
+      return;
+    }
     final result = _lastResult;
     if (result == null || isClosed) return;
     emit(
@@ -374,6 +636,10 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
         selectedItems: _selected,
         hiddenColumnIds: _hidden,
         expandedItems: _expanded,
+        columnWidths: _widths,
+        columnOrder: _order,
+        columnPins: _pins,
+        collapsedGroups: _collapsed,
       ),
     );
   }

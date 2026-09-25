@@ -28,7 +28,9 @@ export 'src/data/exporters/table_export_options.dart';
 export 'src/data/exporters/word_exporter.dart';
 
 // Domain
+export 'src/domain/datasource/table_data_source.dart';
 export 'src/domain/models/column_definition.dart';
+export 'src/domain/models/column_filter.dart';
 export 'src/domain/models/table_state_model.dart';
 export 'src/domain/usecases/filter_items_usecase.dart';
 
@@ -38,3 +40,5 @@ export 'src/presentation/cubit/table_cubit.dart';
 export 'src/presentation/cubit/table_cubit_state.dart';
 export 'src/presentation/widgets/adaptive_table_layout.dart';
 export 'src/presentation/widgets/dynamic_form.dart';
+export 'src/presentation/widgets/grid/cell_editor.dart';
+export 'src/presentation/widgets/grid/table_entries.dart' show TableGroupInfo;

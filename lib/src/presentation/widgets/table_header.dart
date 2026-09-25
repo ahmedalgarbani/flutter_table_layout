@@ -11,6 +11,7 @@ import '../../data/exporters/export_utils.dart';
 import '../../data/exporters/pdf_exporter.dart';
 import '../../data/exporters/table_export_options.dart';
 import '../../data/exporters/word_exporter.dart';
+import '../../domain/models/column_definition.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
 import 'adaptive_table_layout.dart';
@@ -256,40 +257,100 @@ class TableHeader<T> extends StatelessWidget {
       color: theme.cardBackgroundColor.withValues(alpha: 1),
       itemBuilder: (_) {
         return columns.map<PopupMenuEntry<String>>((col) {
-          return PopupMenuItem<String>(
-            enabled: false,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: BlocBuilder<TableCubit<T>, TableCubitState<T>>(
-              bloc: cubit,
-              builder: (context, state) {
-                final hidden = state is TableLoaded<T>
-                    ? state.hiddenColumnIds
-                    : const <String>[];
-                final isVisible = !hidden.contains(col.id);
-                final visibleCount = columns.length - hidden.length;
-                final canToggle =
-                    col.isHideable && (!isVisible || visibleCount > 1);
-                return CheckboxListTile(
-                  title: Text(
-                    col.title,
+            return PopupMenuItem<String>(
+              enabled: false,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: BlocBuilder<TableCubit<T>, TableCubitState<T>>(
+                bloc: cubit,
+                builder: (context, state) {
+                  final hidden = state is TableLoaded<T>
+                      ? state.hiddenColumnIds
+                      : const <String>[];
+                  final isVisible = !hidden.contains(col.id);
+                  final visibleCount = columns.length - hidden.length;
+                  final canToggle =
+                      col.isHideable && (!isVisible || visibleCount > 1);
+                  return CheckboxListTile(
+                    title: Text(
+                      col.title,
+                      style: theme.rowTextStyle.copyWith(fontSize: 13),
+                    ),
+                    value: isVisible,
+                    activeColor: theme.accentColor,
+                    checkColor: theme.onAccentColor,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: canToggle
+                        ? (_) => cubit.toggleColumnVisibility(col.id)
+                        : null,
+                    secondary: state is TableLoaded<T>
+                        ? _pinButton(cubit, state, col)
+                        : null,
+                  );
+                },
+              ),
+            );
+          }).toList()
+          ..add(const PopupMenuDivider())
+          ..add(
+            PopupMenuItem<String>(
+              height: 40,
+              onTap: cubit.resetColumnLayout,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.restart_alt,
+                    size: 18,
+                    color: theme.actionIconColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    labels.resetColumns,
                     style: theme.rowTextStyle.copyWith(fontSize: 13),
                   ),
-                  value: isVisible,
-                  activeColor: theme.accentColor,
-                  checkColor: theme.onAccentColor,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  onChanged: canToggle
-                      ? (_) => cubit.toggleColumnVisibility(col.id)
-                      : null,
-                );
-              },
+                ],
+              ),
             ),
           );
-        }).toList();
       },
     );
+  }
+
+  /// Cycles unfrozen → frozen at start → frozen at end → unfrozen.
+  Widget _pinButton(
+    TableCubit<T> cubit,
+    TableLoaded<T> state,
+    AdaptiveTableColumn<T> col,
+  ) {
+    final pin = state.pinOf(col.definition);
+    final (next, tooltip) = switch (pin) {
+      ColumnPin.none => (ColumnPin.start, labels.freezeStart),
+      ColumnPin.start => (ColumnPin.end, labels.freezeEnd),
+      ColumnPin.end => (ColumnPin.none, labels.unfreeze),
+    };
+    return IconButton(
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      icon: Icon(
+        pin == ColumnPin.none ? Icons.push_pin_outlined : Icons.push_pin,
+        size: 18,
+        color: pin == ColumnPin.none
+            ? theme.actionIconColor.withValues(alpha: 0.6)
+            : theme.accentColor,
+      ),
+      onPressed: () => cubit.setColumnPin(col.id, next),
+    );
+  }
+
+  /// Column definitions in the user's display order (drag & drop / pins).
+  List<ColumnDefinition> _orderedDefinitions(TableLoaded<T> state) {
+    final visible = state.arrange(columns, (c) => c.definition);
+    return [
+      ...visible.map((c) => c.definition),
+      // Hidden columns are skipped by the exporters anyway.
+      ...columns.where((c) => !visible.contains(c)).map((c) => c.definition),
+    ];
   }
 
   Widget _buildExportMenu(BuildContext context, Color iconColor) {
@@ -385,7 +446,7 @@ class TableHeader<T> extends StatelessWidget {
       }
       return;
     }
-    final definitions = columns.map((c) => c.definition).toList();
+    final definitions = _orderedDefinitions(state);
     final hidden = state.hiddenColumnIds;
     final formatLabel = switch (format) {
       ExportFormat.excel => 'Excel',
@@ -478,7 +539,7 @@ class TableHeader<T> extends StatelessWidget {
       ).printTable<T>(
         title: _reportTitle,
         subtitle: subtitle,
-        columns: columns.map((c) => c.definition).toList(),
+        columns: _orderedDefinitions(state),
         items: _rowsToExport(state),
         valueProviders: valueProviders,
         isRtl: isRtl,

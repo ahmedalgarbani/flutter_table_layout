@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_state_model.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
@@ -83,6 +84,31 @@ class AdaptiveTableController<T> extends ChangeNotifier {
   void selectAll() => cubit.toggleSelectAll(true);
   void clearSelection() => cubit.clearSelection();
   void toggleRowExpansion(T item) => cubit.toggleRowExpansion(item);
+
+  /// Adds a secondary sort level (like Shift + click on a header).
+  void addSort(String columnId, {bool ascending = true}) =>
+      cubit.sortBy(columnId, ascending: ascending, additive: true);
+  void setSorts(List<ColumnSort> sorts) => cubit.setSorts(sorts);
+  void setColumnFilter(String columnId, String? expression) =>
+      cubit.setColumnFilter(columnId, expression);
+  void clearColumnFilters() => cubit.clearColumnFilters();
+  void groupBy(String? columnId) => cubit.groupBy(columnId);
+  void toggleGroup(String groupKey) => cubit.toggleGroupCollapsed(groupKey);
+  void setColumnWidth(String columnId, double width) =>
+      cubit.setColumnWidth(columnId, width);
+  void moveColumn(String columnId, {String? beforeColumnId}) =>
+      cubit.moveColumn(columnId, beforeColumnId: beforeColumnId);
+  void setColumnOrder(List<String> columnIds) =>
+      cubit.setColumnOrder(columnIds);
+  void setColumnPin(String columnId, ColumnPin pin) =>
+      cubit.setColumnPin(columnId, pin);
+  void resetColumnLayout() => cubit.resetColumnLayout();
+
+  /// Re-runs the query; with a server data source, reloads the current page.
+  void refresh() => cubit.refresh();
+
+  /// Whether a server request is in flight.
+  bool get isFetching => _cubit?.isFetching ?? false;
 
   /// Called by the table. Not meant for app code.
   void attach(TableCubit<T> cubit) {

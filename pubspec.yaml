@@ -1,8 +1,8 @@
 name: flutter_table_layout
 description: >-
-  Adaptive, responsive data tables for Flutter: desktop grid and mobile cards,
-  search, date and custom filters, sorting, pagination, selection, summaries,
-  Excel / Word / PDF export, printing, dynamic CRUD forms, themes and RTL (Arabic).
+  Adaptive data grid for Flutter: mobile cards + desktop grid with frozen
+  columns, virtualization, column filters, grouping, inline editing, server-side
+  data, Excel / Word / PDF export, CRUD forms, themes and RTL (Arabic).
 version: 0.1.0
 homepage: https://github.com/ahmedalgarbani/flutter_table_layout
 repository: https://github.com/ahmedalgarbani/flutter_table_layout
@@ -19,6 +19,10 @@ screenshots:
     path: doc/screenshots/desktop_light.png
   - description: Mobile card layout (Arabic / RTL).
     path: doc/screenshots/mobile_rtl.png
+  - description: Frozen columns and per-column filters.
+    path: doc/screenshots/grid_frozen.png
+  - description: Row grouping and inline cell editing.
+    path: doc/screenshots/grid_grouping_editing.png
 
 environment:
   sdk: ^3.9.0

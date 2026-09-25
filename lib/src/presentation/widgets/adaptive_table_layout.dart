@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -7,11 +8,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/labels.dart';
 import '../../core/theme.dart';
 import '../../data/exporters/table_export_options.dart';
+import '../../domain/datasource/table_data_source.dart';
 import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_state_model.dart';
 import '../controller/adaptive_table_controller.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
+import 'grid/cell_editor.dart';
+import 'grid/table_entries.dart';
 import 'table_content.dart';
 import 'table_filter_bar.dart';
 import 'table_footer.dart';
@@ -38,6 +42,19 @@ enum TableLayoutMode {
 typedef TableExportCallback<T> =
     Future<void> Function(ExportFormat format, List<T> rows);
 
+/// Called after an inline cell edit. Update your data (e.g. replace the
+/// item in `items` and call `setState`). Return `false` to reject the value
+/// (the editor stays open), or throw to show the error.
+typedef CellEditCallback<T> =
+    FutureOr<bool?> Function(T item, String columnId, dynamic newValue);
+
+/// Decides whether a given cell can be edited (e.g. from user permissions).
+typedef CanEditCell<T> = bool Function(T item, String columnId);
+
+/// Extra content of a group header row (aggregates, actions…).
+typedef GroupHeaderBuilder<T> =
+    Widget Function(BuildContext context, TableGroupInfo<T> group);
+
 /// Replaces the built-in print action.
 typedef TablePrintCallback<T> = Future<void> Function(List<T> rows);
 
@@ -60,6 +77,14 @@ class AdaptiveTableColumn<T> {
   /// PDF / Word exports (Excel keeps the raw typed value).
   final CellValueFormatter? valueFormatter;
 
+  /// Inline editor of this column (when `isEditable`). Inferred from the
+  /// value type when `null`.
+  final CellEditor? editor;
+
+  /// Validates an inline edit before `onCellEdited` is called. Return an
+  /// error message to keep the editor open.
+  final String? Function(dynamic value)? cellValidator;
+
   AdaptiveTableColumn({
     required String id,
     required String title,
@@ -69,12 +94,19 @@ class AdaptiveTableColumn<T> {
     bool isSearchable = true,
     bool isExportable = true,
     bool isHideable = true,
+    bool isFilterable = true,
+    bool isResizable = true,
+    bool isEditable = false,
+    ColumnPin pin = ColumnPin.none,
     double? width,
+    double minWidth = 60,
     int flex = 1,
     AdaptiveTableColumnAlignment alignment = AdaptiveTableColumnAlignment.start,
     this.cellBuilder,
     this.headerBuilder,
     this.valueFormatter,
+    this.editor,
+    this.cellValidator,
   }) : definition = ColumnDefinition(
          id: id,
          title: title,
@@ -84,7 +116,12 @@ class AdaptiveTableColumn<T> {
          isSearchable: isSearchable,
          isExportable: isExportable,
          isHideable: isHideable,
+         isFilterable: isFilterable,
+         isResizable: isResizable,
+         isEditable: isEditable,
+         pin: pin,
          width: width,
+         minWidth: minWidth,
          flex: flex,
          alignment: alignment,
        );
@@ -97,6 +134,11 @@ class AdaptiveTableColumn<T> {
   bool get isSearchable => definition.isSearchable;
   bool get isExportable => definition.isExportable;
   bool get isHideable => definition.isHideable;
+  bool get isFilterable => definition.isFilterable;
+  bool get isResizable => definition.isResizable;
+  bool get isEditable => definition.isEditable;
+  ColumnPin get pin => definition.pin;
+  double get minWidth => definition.minWidth;
   double? get width => definition.width;
   int get flex => definition.flex;
   AdaptiveTableColumnAlignment get alignment => definition.alignment;
@@ -226,6 +268,49 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Your own print implementation.
   final TablePrintCallback<T>? onPrintRequested;
 
+  /// Loads rows page by page from a server. When set, [items] is ignored and
+  /// search / filters / sort / pagination are delegated to the data source.
+  /// Create it once (e.g. in `initState`), not in `build`.
+  final AdaptiveTableDataSource<T>? dataSource;
+
+  /// Fixed height of the rows area. Enables a sticky header and lazy
+  /// (virtualized) row building, for thousands of rows.
+  final double? bodyHeight;
+
+  /// Makes the table fill the height of its parent (which must have a
+  /// bounded height, e.g. `Expanded` or `SizedBox`), with a sticky header
+  /// and virtualized rows. Ignored when the parent height is unbounded.
+  final bool fillHeight;
+
+  /// Shows a filter field under each column header (desktop grid).
+  final bool showColumnFilters;
+
+  /// Lets users resize columns by dragging the header edge (desktop grid).
+  /// Double-click the edge to restore the declared width.
+  final bool allowColumnResize;
+
+  /// Lets users reorder columns by long-pressing and dragging a header.
+  final bool allowColumnReorder;
+
+  /// Arrow keys, Enter / F2 (edit), Space (select), Tab, Home / End,
+  /// Page Up / Down, Ctrl + A, Escape (desktop grid).
+  final bool enableKeyboardNavigation;
+
+  /// Groups rows by this column initially.
+  final String? groupByColumnId;
+
+  /// Extra content (aggregates…) shown in each group header.
+  final GroupHeaderBuilder<T>? groupHeaderBuilder;
+
+  /// Enables inline editing of columns declared with `isEditable: true`.
+  final CellEditCallback<T>? onCellEdited;
+
+  /// Per-cell edit permission.
+  final CanEditCell<T>? canEditCell;
+
+  /// Minimum height of desktop rows.
+  final double minRowHeight;
+
   /// Callback when a row cell is clicked.
   final ValueChanged<T>? onRowTap;
 
@@ -283,7 +368,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
 
   const AdaptiveTableLayout({
     super.key,
-    required this.items,
+    this.items = const [],
     required this.columns,
     required this.valueProviders,
     this.dateProvider,
@@ -319,6 +404,18 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.layoutMode = TableLayoutMode.auto,
     this.onExportRequested,
     this.onPrintRequested,
+    this.dataSource,
+    this.bodyHeight,
+    this.fillHeight = false,
+    this.showColumnFilters = false,
+    this.allowColumnResize = true,
+    this.allowColumnReorder = true,
+    this.enableKeyboardNavigation = true,
+    this.groupByColumnId,
+    this.groupHeaderBuilder,
+    this.onCellEdited,
+    this.canEditCell,
+    this.minRowHeight = 0,
     this.onRowTap,
     this.onRowLongPress,
     this.onSelectionChanged,
@@ -381,7 +478,9 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
         pageSize: _effectivePageSize,
         sortByColumnId: widget.initialSortColumnId,
         sortAscending: widget.initialSortAscending,
+        groupByColumnId: widget.groupByColumnId,
       ),
+      dataSource: widget.dataSource,
     );
     widget.controller?.attach(_cubit);
     _lastSelection = _cubit.selectedItems;
@@ -411,7 +510,13 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       customFilterMatcher: widget.customFilterMatcher,
       clearCustomFilterMatcher: widget.customFilterMatcher == null,
       items: itemsChanged ? widget.items : null,
+      dataSource: widget.dataSource,
+      clearDataSource: widget.dataSource == null,
     );
+
+    if (widget.groupByColumnId != oldWidget.groupByColumnId) {
+      _cubit.groupBy(widget.groupByColumnId);
+    }
 
     if (widget.showPagination != oldWidget.showPagination ||
         (widget.showPagination &&
@@ -430,6 +535,25 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.fillHeight) return _buildTable(context, fill: false);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fill = constraints.hasBoundedHeight;
+        assert(() {
+          if (!fill) {
+            debugPrint(
+              'AdaptiveTableLayout: fillHeight needs a parent with a bounded '
+              'height (Expanded, SizedBox…). Falling back to natural height.',
+            );
+          }
+          return true;
+        }());
+        return _buildTable(context, fill: fill);
+      },
+    );
+  }
+
+  Widget _buildTable(BuildContext context, {required bool fill}) {
     final theme = widget.theme ?? AdaptiveTableTheme.of(context);
     final baseLabels = widget.labels ?? AdaptiveTableLabels.of(context);
     final labels = baseLabels.copyWith(
@@ -439,8 +563,40 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       query: widget.queryButtonLabel,
     );
 
+    Widget content = TableContent<T>(
+      columns: widget.columns,
+      valueProviders: widget.valueProviders,
+      showSelection: widget.showSelection,
+      emptyWidget: widget.emptyWidget,
+      loadingWidget: widget.loadingWidget,
+      isLoading: widget.isLoading,
+      minDesktopWidth: widget.minDesktopWidth,
+      mobileBreakpoint: _contentBreakpoint,
+      onRowTap: widget.onRowTap,
+      onRowLongPress: widget.onRowLongPress,
+      rowColorBuilder: widget.rowColorBuilder,
+      expandedRowBuilder: widget.expandedRowBuilder,
+      mobileTitleColumnId: widget.mobileTitleColumnId,
+      mobileSubtitleColumnId: widget.mobileSubtitleColumnId,
+      showColumnFilters: widget.showColumnFilters,
+      allowColumnResize: widget.allowColumnResize,
+      allowColumnReorder: widget.allowColumnReorder,
+      enableKeyboardNavigation: widget.enableKeyboardNavigation,
+      onCellEdited: widget.onCellEdited,
+      canEditCell: widget.canEditCell,
+      groupHeaderBuilder: widget.groupHeaderBuilder,
+      minRowHeight: widget.minRowHeight,
+      theme: theme,
+      labels: labels,
+    );
+    if (fill) {
+      content = Expanded(child: content);
+    } else if (widget.bodyHeight != null) {
+      content = SizedBox(height: widget.bodyHeight, child: content);
+    }
+
     final Widget tableBody = Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 1. Top Header Bar
@@ -479,24 +635,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
         ),
 
         // 3. Main Data Content
-        TableContent<T>(
-          columns: widget.columns,
-          valueProviders: widget.valueProviders,
-          showSelection: widget.showSelection,
-          emptyWidget: widget.emptyWidget,
-          loadingWidget: widget.loadingWidget,
-          isLoading: widget.isLoading,
-          minDesktopWidth: widget.minDesktopWidth,
-          mobileBreakpoint: _contentBreakpoint,
-          onRowTap: widget.onRowTap,
-          onRowLongPress: widget.onRowLongPress,
-          rowColorBuilder: widget.rowColorBuilder,
-          expandedRowBuilder: widget.expandedRowBuilder,
-          mobileTitleColumnId: widget.mobileTitleColumnId,
-          mobileSubtitleColumnId: widget.mobileSubtitleColumnId,
-          theme: theme,
-          labels: labels,
-        ),
+        content,
 
         // 4. Footer Pagination & Summaries
         TableFooter<T>(

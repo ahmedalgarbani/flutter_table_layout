@@ -1,4 +1,5 @@
 import '../models/column_definition.dart';
+import '../models/column_filter.dart';
 import '../models/table_state_model.dart';
 
 /// The full output of a [FilterItemsUseCase] pass.
@@ -33,9 +34,10 @@ class TableQueryResult<T> {
 /// The pipeline runs in this order:
 /// 1. date range (via `dateProvider`, compared by calendar day, both ends inclusive)
 /// 2. custom filters (via `customFilterMatcher`)
-/// 3. global search (case-insensitive, over visible + searchable columns)
-/// 4. stable sort (nulls always last)
-/// 5. pagination (the requested page is clamped to the last available page)
+/// 3. per-column filters (`TableStateModel.columnFilters`)
+/// 4. global search (case-insensitive, over visible + searchable columns)
+/// 5. stable multi-level sort (group column first when grouping; nulls last)
+/// 6. pagination (the requested page is clamped to the last available page)
 class FilterItemsUseCase {
   const FilterItemsUseCase();
 
@@ -75,7 +77,23 @@ class FilterItemsUseCase {
       );
     }
 
-    // 3. Global search
+    // 3. Per-column filters
+    final activeColumnFilters = {
+      for (final e in state.columnFilters.entries)
+        if (e.value.trim().isNotEmpty && valueProviders?[e.key] != null)
+          e.key: e.value,
+    };
+    if (activeColumnFilters.isNotEmpty) {
+      result = result.where((item) {
+        for (final e in activeColumnFilters.entries) {
+          final value = valueProviders![e.key]!(item) as Object?;
+          if (!ColumnFilterMatcher.matches(value, e.value)) return false;
+        }
+        return true;
+      });
+    }
+
+    // 4. Global search
     final query = state.searchQuery.trim().toLowerCase();
     if (query.isNotEmpty) {
       final extractors = _searchExtractors(
@@ -90,28 +108,46 @@ class FilterItemsUseCase {
 
     final filtered = result.toList();
 
-    // 4. Sorting (stable: equal values keep their original relative order)
-    final sortId = state.sortByColumnId;
-    final extractor = sortId == null ? null : valueProviders?[sortId];
-    if (extractor != null) {
-      final indexed = List<(int, T, Object?)>.generate(
+    // 5. Sorting (stable: equal values keep their original relative order).
+    // When grouping, the group column is the first sort level so that each
+    // group is contiguous.
+    final levels = <ColumnSort>[
+      if (state.groupByColumnId != null &&
+          !state.sorts.any((s) => s.columnId == state.groupByColumnId))
+        ColumnSort(state.groupByColumnId!),
+      ...state.sorts,
+    ];
+    final extractors = <(dynamic Function(T), bool)>[
+      for (final level in levels)
+        if (valueProviders?[level.columnId] != null)
+          (valueProviders![level.columnId]!, level.ascending),
+    ];
+    if (extractors.isNotEmpty) {
+      final indexed = List<(int, T, List<Object?>)>.generate(
         filtered.length,
-        (i) => (i, filtered[i], extractor(filtered[i]) as Object?),
+        (i) => (
+          i,
+          filtered[i],
+          [for (final e in extractors) e.$1(filtered[i]) as Object?],
+        ),
       );
       indexed.sort((a, b) {
-        final cmp = compareCellValues(
-          a.$3,
-          b.$3,
-          ascending: state.sortAscending,
-        );
-        return cmp != 0 ? cmp : a.$1.compareTo(b.$1);
+        for (var l = 0; l < extractors.length; l++) {
+          final cmp = compareCellValues(
+            a.$3[l],
+            b.$3[l],
+            ascending: extractors[l].$2,
+          );
+          if (cmp != 0) return cmp;
+        }
+        return a.$1.compareTo(b.$1);
       });
       for (var i = 0; i < indexed.length; i++) {
         filtered[i] = indexed[i].$2;
       }
     }
 
-    // 5. Pagination
+    // 6. Pagination
     final totalCount = filtered.length;
     if (!state.isPaginated) {
       return TableQueryResult<T>(

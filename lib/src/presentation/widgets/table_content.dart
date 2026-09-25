@@ -3,11 +3,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/labels.dart';
 import '../../core/theme.dart';
-import '../../data/exporters/export_utils.dart';
-import '../../domain/models/column_definition.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
 import 'adaptive_table_layout.dart';
+import 'grid/cell_renderer.dart';
+import 'grid/table_entries.dart';
+import 'grid/table_grid.dart';
 
 /// The core content renderer. Detects screen size and toggles between a dense
 /// desktop tabular view and a responsive mobile card list view.
@@ -26,6 +27,14 @@ class TableContent<T> extends StatelessWidget {
   final Widget Function(BuildContext, T)? expandedRowBuilder;
   final String? mobileTitleColumnId;
   final String? mobileSubtitleColumnId;
+  final bool showColumnFilters;
+  final bool allowColumnResize;
+  final bool allowColumnReorder;
+  final bool enableKeyboardNavigation;
+  final CellEditCallback<T>? onCellEdited;
+  final CanEditCell<T>? canEditCell;
+  final GroupHeaderBuilder<T>? groupHeaderBuilder;
+  final double minRowHeight;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -45,12 +54,23 @@ class TableContent<T> extends StatelessWidget {
     this.expandedRowBuilder,
     this.mobileTitleColumnId,
     this.mobileSubtitleColumnId,
+    this.showColumnFilters = false,
+    this.allowColumnResize = true,
+    this.allowColumnReorder = true,
+    this.enableKeyboardNavigation = true,
+    this.onCellEdited,
+    this.canEditCell,
+    this.groupHeaderBuilder,
+    this.minRowHeight = 0,
     required this.theme,
     this.labels = AdaptiveTableLabels.en,
   });
 
-  static const double _selectionColumnWidth = 48;
-  static const double _expandColumnWidth = 44;
+  CellRenderer<T> get _renderer => CellRenderer<T>(
+    valueProviders: valueProviders,
+    theme: theme,
+    rowColorBuilder: rowColorBuilder,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +100,12 @@ class TableContent<T> extends StatelessWidget {
                       color: theme.statusNegativeColor,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(labels.retry),
+                    onPressed: () => context.read<TableCubit<T>>().refresh(),
+                  ),
                 ],
               ),
             ),
@@ -88,47 +114,63 @@ class TableContent<T> extends StatelessWidget {
 
         if (state is! TableLoaded<T>) return const SizedBox.shrink();
 
+        final loading = isLoading || state.isFetching;
         final items = state.paginatedItems;
-        if (items.isEmpty) {
-          if (isLoading) return _loadingIndicator();
-          return emptyWidget ?? _defaultEmpty(state);
-        }
-
-        final visibleCols = columns
-            .where((c) => !state.hiddenColumnIds.contains(c.id))
-            .toList();
-        final selected = state.selectedItems.toSet();
-        final expanded = state.expandedItems.toSet();
 
         final content = LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth < mobileBreakpoint) {
+            final mobile = constraints.maxWidth < mobileBreakpoint;
+            if (items.isEmpty && (mobile || !showColumnFilters)) {
+              if (loading && state.originalItems.isEmpty) {
+                return _loadingIndicator();
+              }
+              return emptyWidget ?? _defaultEmpty(state);
+            }
+            if (mobile) {
               return _buildMobileLayout(
                 context,
-                items,
-                visibleCols,
-                selected,
-                expanded,
+                state,
+                bounded: constraints.hasBoundedHeight,
               );
             }
-            return _buildDesktopLayout(
-              context,
-              state,
-              visibleCols,
-              selected,
-              expanded,
-              constraints.maxWidth,
+            return TableGrid<T>(
+              state: state,
+              columns: columns,
+              renderer: _renderer,
+              showSelection: showSelection,
+              minDesktopWidth: minDesktopWidth,
+              onRowTap: onRowTap,
+              onRowLongPress: onRowLongPress,
+              expandedRowBuilder: expandedRowBuilder,
+              showColumnFilters: showColumnFilters,
+              allowColumnResize: allowColumnResize,
+              allowColumnReorder: allowColumnReorder,
+              enableKeyboardNavigation: enableKeyboardNavigation,
+              onCellEdited: onCellEdited,
+              canEditCell: canEditCell,
+              groupHeaderBuilder: groupHeaderBuilder,
+              minRowHeight: minRowHeight,
+              emptyPlaceholder: emptyWidget ?? _defaultEmpty(state),
+              theme: theme,
+              labels: labels,
             );
           },
         );
 
-        if (!isLoading) return content;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        if (!loading) return content;
+        return Stack(
+          fit: StackFit.passthrough,
           children: [
-            LinearProgressIndicator(minHeight: 2, color: theme.accentColor),
             AbsorbPointer(child: Opacity(opacity: 0.6, child: content)),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                color: theme.accentColor,
+              ),
+            ),
           ],
         );
       },
@@ -170,38 +212,6 @@ class TableContent<T> extends StatelessWidget {
     );
   }
 
-  // --- Shared cell helpers ---
-
-  String _textFor(AdaptiveTableColumn<T> col, T item) {
-    final raw = valueProviders[col.id]?.call(item);
-    return (col.valueFormatter ?? ExportUtils.formatValue)(raw);
-  }
-
-  Widget _cellFor(BuildContext context, AdaptiveTableColumn<T> col, T item) {
-    if (col.cellBuilder != null) return col.cellBuilder!(context, item);
-    return Text(
-      _textFor(col, item),
-      style: theme.rowTextStyle,
-      overflow: TextOverflow.ellipsis,
-      maxLines: 2,
-      textAlign: _textAlign(col.alignment),
-    );
-  }
-
-  Color _rowColor(T item, bool isSelected, bool isAlternate) {
-    if (isSelected) {
-      return Color.alphaBlend(
-        theme.effectiveSelectedRowColor,
-        theme.rowBackgroundColor,
-      );
-    }
-    final custom = rowColorBuilder?.call(item);
-    if (custom != null) return custom;
-    return isAlternate
-        ? theme.alternateRowBackgroundColor
-        : theme.rowBackgroundColor;
-  }
-
   VoidCallback? _tapHandler(BuildContext context, T item) {
     if (onRowTap != null) return () => onRowTap!(item);
     if (expandedRowBuilder != null) {
@@ -210,276 +220,26 @@ class TableContent<T> extends StatelessWidget {
     return null;
   }
 
-  // --- Desktop Render Engine ---
-
-  Widget _buildDesktopLayout(
-    BuildContext context,
-    TableLoaded<T> state,
-    List<AdaptiveTableColumn<T>> visibleCols,
-    Set<T> selected,
-    Set<T> expanded,
-    double availableWidth,
-  ) {
-    final items = state.paginatedItems;
-    final fixedWidth =
-        visibleCols.fold<double>(0, (sum, c) => sum + (c.width ?? 0)) +
-        (showSelection ? _selectionColumnWidth : 0) +
-        (expandedRowBuilder != null ? _expandColumnWidth : 0) +
-        visibleCols.where((c) => c.width == null).length * 80;
-    final tableWidth = [
-      minDesktopWidth,
-      fixedWidth,
-    ].reduce((a, b) => a > b ? a : b);
-    final useHorizontalScroll = availableWidth < tableWidth;
-
-    final tableWidget = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildDesktopHeader(context, state, visibleCols),
-        Divider(height: 1, thickness: 1, color: theme.dividerColor),
-        for (var index = 0; index < items.length; index++) ...[
-          if (index > 0) Divider(height: 1, color: theme.dividerColor),
-          _buildDesktopRow(
-            context,
-            items[index],
-            visibleCols,
-            selected.contains(items[index]),
-            expanded.contains(items[index]),
-            theme.useAlternateRows && index.isOdd,
-          ),
-        ],
-      ],
-    );
-
-    if (useHorizontalScroll) {
-      return Scrollbar(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(width: tableWidth, child: tableWidget),
-        ),
-      );
-    }
-    return tableWidget;
-  }
-
-  Widget _sizedCell(AdaptiveTableColumn<T> col, Widget child) {
-    if (col.width != null) return SizedBox(width: col.width, child: child);
-    return Expanded(flex: col.flex, child: child);
-  }
-
-  Widget _buildDesktopHeader(
-    BuildContext context,
-    TableLoaded<T> state,
-    List<AdaptiveTableColumn<T>> visibleCols,
-  ) {
-    final cubit = context.read<TableCubit<T>>();
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.headerGradient == null
-            ? theme.headerBackgroundColor
-            : null,
-        gradient: theme.headerGradient,
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          if (expandedRowBuilder != null)
-            const SizedBox(width: _expandColumnWidth),
-          if (showSelection)
-            SizedBox(
-              width: _selectionColumnWidth,
-              child: Tooltip(
-                message: labels.selectAll,
-                child: Checkbox(
-                  tristate: true,
-                  value: state.selectAllValue,
-                  activeColor: theme.accentColor,
-                  checkColor: theme.onAccentColor,
-                  side: BorderSide(
-                    color: theme.headerTextStyle.color ?? theme.actionIconColor,
-                    width: 1.5,
-                  ),
-                  onChanged: state.filteredAndSortedItems.isEmpty
-                      ? null
-                      : (_) =>
-                            cubit.toggleSelectAll(state.selectAllValue != true),
-                ),
-              ),
-            ),
-          for (final col in visibleCols)
-            _sizedCell(col, _buildHeaderCell(context, state, col)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderCell(
-    BuildContext context,
-    TableLoaded<T> state,
-    AdaptiveTableColumn<T> col,
-  ) {
-    final isSorted = state.tableState.sortByColumnId == col.id;
-    final isAscending = state.tableState.sortAscending;
-    final canSort = col.isSortable && valueProviders.containsKey(col.id);
-
-    final Widget label;
-    if (col.headerBuilder != null) {
-      label = col.headerBuilder!(context);
-    } else if (col.title.trim().contains(' ')) {
-      // Multi-word titles wrap on word boundaries.
-      label = Text(
-        col.title,
-        style: theme.headerTextStyle,
-        overflow: TextOverflow.ellipsis,
-        maxLines: 2,
-        textAlign: _textAlign(col.alignment),
-      );
-    } else {
-      // A single word is never split mid-word: it shrinks to fit instead.
-      label = FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: _alignment(col.alignment),
-        child: Text(col.title, style: theme.headerTextStyle, maxLines: 1),
-      );
-    }
-
-    Widget content = Row(
-      mainAxisAlignment: _mainAxisAlignment(col.alignment),
-      children: [
-        Flexible(child: label),
-        if (canSort) ...[
-          const SizedBox(width: 4),
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: isSorted ? 1.0 : 0.3,
-            child: AnimatedRotation(
-              duration: const Duration(milliseconds: 200),
-              turns: isSorted && !isAscending ? 0.5 : 0,
-              child: Icon(
-                Icons.arrow_upward,
-                size: 14,
-                color: isSorted && theme.headerGradient == null
-                    ? theme.accentColor
-                    : (theme.headerTextStyle.color ?? theme.actionIconColor),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-
-    content = Padding(padding: theme.headerPadding, child: content);
-    if (!canSort) return content;
-
-    return Semantics(
-      button: true,
-      child: InkWell(
-        onTap: () => context.read<TableCubit<T>>().toggleSort(col.id),
-        child: content,
-      ),
-    );
-  }
-
-  Widget _buildDesktopRow(
-    BuildContext context,
-    T item,
-    List<AdaptiveTableColumn<T>> visibleCols,
-    bool isSelected,
-    bool isExpanded,
-    bool isAlternate,
-  ) {
-    final cubit = context.read<TableCubit<T>>();
-
-    return Material(
-      color: _rowColor(item, isSelected, isAlternate),
-      child: InkWell(
-        hoverColor: theme.rowHoverColor,
-        onTap: _tapHandler(context, item),
-        onLongPress: onRowLongPress == null
-            ? null
-            : () => onRowLongPress!(item),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  if (expandedRowBuilder != null)
-                    SizedBox(
-                      width: _expandColumnWidth,
-                      child: _ExpandButton(
-                        expanded: isExpanded,
-                        color: theme.actionIconColor,
-                        tooltip: isExpanded ? labels.collapse : labels.expand,
-                        onPressed: () => cubit.toggleRowExpansion(item),
-                      ),
-                    ),
-                  if (showSelection)
-                    SizedBox(
-                      width: _selectionColumnWidth,
-                      child: Checkbox(
-                        value: isSelected,
-                        activeColor: theme.accentColor,
-                        checkColor: theme.onAccentColor,
-                        side: BorderSide(
-                          color: theme.actionIconColor,
-                          width: 1.5,
-                        ),
-                        onChanged: (_) => cubit.toggleRowSelection(item),
-                      ),
-                    ),
-                  for (final col in visibleCols)
-                    _sizedCell(
-                      col,
-                      Padding(
-                        padding: theme.rowPadding,
-                        child: Align(
-                          alignment: _alignment(col.alignment),
-                          child: _cellFor(context, col, item),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (expandedRowBuilder != null)
-              AnimatedSize(
-                duration: const Duration(milliseconds: 200),
-                alignment: AlignmentDirectional.topStart,
-                child: isExpanded
-                    ? Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          color: theme.headerBackgroundColor.withValues(
-                            alpha: 0.5,
-                          ),
-                          border: Border(
-                            top: BorderSide(color: theme.dividerColor),
-                          ),
-                        ),
-                        child: expandedRowBuilder!(context, item),
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // --- Mobile Adaptive Render Engine ---
 
   Widget _buildMobileLayout(
     BuildContext context,
-    List<T> items,
-    List<AdaptiveTableColumn<T>> visibleCols,
-    Set<T> selected,
-    Set<T> expanded,
-  ) {
+    TableLoaded<T> state, {
+    required bool bounded,
+  }) {
+    final visibleCols = state.arrange(columns, (c) => c.definition);
     if (visibleCols.isEmpty) return const SizedBox.shrink();
+    final renderer = _renderer;
+    final selected = state.selectedItems.toSet();
+    final expanded = state.expandedItems.toSet();
+    final groupId = state.tableState.groupByColumnId;
+    final entries = buildTableEntries<T>(
+      state,
+      valueProviders: valueProviders,
+      groupFormatter: groupId == null
+          ? null
+          : columns.where((c) => c.id == groupId).firstOrNull?.valueFormatter,
+    );
 
     AdaptiveTableColumn<T>? byId(String? id) =>
         id == null ? null : visibleCols.where((c) => c.id == id).firstOrNull;
@@ -492,62 +252,135 @@ class TableContent<T> extends StatelessWidget {
         .where((c) => c != titleCol && c != subtitleCol)
         .toList();
 
+    Widget buildEntry(BuildContext context, TableEntry<T> entry) {
+      if (entry is GroupEntry<T>) {
+        return _mobileGroupHeader(context, entry.info);
+      }
+      final item = (entry as RowEntry<T>).item;
+      final isSelected = selected.contains(item);
+      return _MobileCard<T>(
+        item: item,
+        isSelected: isSelected,
+        isExpanded: expanded.contains(item),
+        canExpand: detailCols.isNotEmpty || expandedRowBuilder != null,
+        showSelection: showSelection,
+        theme: theme,
+        labels: labels,
+        backgroundColor: renderer.rowColor(
+          item,
+          selected: isSelected,
+          alternate: false,
+        ),
+        title: _mobileText(context, titleCol, item, isTitle: true),
+        subtitle: subtitleCol == null
+            ? null
+            : _mobileText(context, subtitleCol, item),
+        details: [
+          for (final col in detailCols)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      col.title,
+                      style: theme.footerTextStyle.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    flex: 2,
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: renderer.cellFor(context, col, item),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        expandedBuilder: expandedRowBuilder == null
+            ? null
+            : (context) => expandedRowBuilder!(context, item),
+        onTap: _tapHandler(context, item),
+        onLongPress: onRowLongPress == null
+            ? null
+            : () => onRowLongPress!(item),
+      );
+    }
+
+    const padding = EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+    if (bounded) {
+      // Lazy building: only the visible cards are created.
+      return Scrollbar(
+        child: ListView.builder(
+          padding: padding,
+          itemCount: entries.length,
+          itemBuilder: (context, i) => buildEntry(context, entries[i]),
+        ),
+      );
+    }
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: padding,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final item in items)
-            _MobileCard<T>(
-              item: item,
-              isSelected: selected.contains(item),
-              isExpanded: expanded.contains(item),
-              canExpand: detailCols.isNotEmpty || expandedRowBuilder != null,
-              showSelection: showSelection,
-              theme: theme,
-              labels: labels,
-              backgroundColor: _rowColor(item, selected.contains(item), false),
-              title: _mobileText(context, titleCol, item, isTitle: true),
-              subtitle: subtitleCol == null
-                  ? null
-                  : _mobileText(context, subtitleCol, item),
-              details: [
-                for (final col in detailCols)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            col.title,
-                            style: theme.footerTextStyle.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Flexible(
-                          flex: 2,
-                          child: Align(
-                            alignment: AlignmentDirectional.centerEnd,
-                            child: _cellFor(context, col, item),
-                          ),
-                        ),
-                      ],
-                    ),
+        children: [for (final e in entries) buildEntry(context, e)],
+      ),
+    );
+  }
+
+  Widget _mobileGroupHeader(BuildContext context, TableGroupInfo<T> info) {
+    final col = columns.where((c) => c.id == info.columnId).firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 4),
+      child: Material(
+        color: theme.headerBackgroundColor,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () =>
+              context.read<TableCubit<T>>().toggleGroupCollapsed(info.key),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              children: [
+                AnimatedRotation(
+                  duration: const Duration(milliseconds: 200),
+                  // chevron_right mirrors in RTL, so the rotation does too.
+                  turns: info.isCollapsed
+                      ? 0
+                      : (Directionality.of(context) == TextDirection.rtl
+                            ? -0.25
+                            : 0.25),
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: theme.actionIconColor,
                   ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${col?.title ?? ''}: ${info.key.isEmpty ? '—' : info.key}',
+                    style: theme.headerTextStyle.copyWith(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '${info.rows.length}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: theme.accentColor,
+                  ),
+                ),
               ],
-              expandedBuilder: expandedRowBuilder == null
-                  ? null
-                  : (context) => expandedRowBuilder!(context, item),
-              onTap: _tapHandler(context, item),
-              onLongPress: onRowLongPress == null
-                  ? null
-                  : () => onRowLongPress!(item),
             ),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -564,7 +397,7 @@ class TableContent<T> extends StatelessWidget {
       return col.cellBuilder!(context, item);
     }
     return Text(
-      _textFor(col, item),
+      _renderer.textFor(col, item),
       maxLines: isTitle ? 2 : 1,
       overflow: TextOverflow.ellipsis,
       style: isTitle
@@ -573,63 +406,6 @@ class TableContent<T> extends StatelessWidget {
               color: theme.headerGradient != null ? theme.accentColor : null,
             )
           : theme.footerTextStyle,
-    );
-  }
-
-  // --- Alignment Helpers (direction-aware) ---
-
-  MainAxisAlignment _mainAxisAlignment(TableColumnAlignment alignment) {
-    return switch (alignment) {
-      TableColumnAlignment.start => MainAxisAlignment.start,
-      TableColumnAlignment.center => MainAxisAlignment.center,
-      TableColumnAlignment.end => MainAxisAlignment.end,
-    };
-  }
-
-  AlignmentDirectional _alignment(TableColumnAlignment alignment) {
-    return switch (alignment) {
-      TableColumnAlignment.start => AlignmentDirectional.centerStart,
-      TableColumnAlignment.center => AlignmentDirectional.center,
-      TableColumnAlignment.end => AlignmentDirectional.centerEnd,
-    };
-  }
-
-  TextAlign _textAlign(TableColumnAlignment alignment) {
-    return switch (alignment) {
-      TableColumnAlignment.start => TextAlign.start,
-      TableColumnAlignment.center => TextAlign.center,
-      TableColumnAlignment.end => TextAlign.end,
-    };
-  }
-}
-
-class _ExpandButton extends StatelessWidget {
-  final bool expanded;
-  final Color color;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  const _ExpandButton({
-    required this.expanded,
-    required this.color,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      onPressed: onPressed,
-      // chevron_right mirrors itself in RTL, so the rotation is mirrored too.
-      icon: AnimatedRotation(
-        duration: const Duration(milliseconds: 200),
-        turns: expanded
-            ? (Directionality.of(context) == TextDirection.rtl ? -0.25 : 0.25)
-            : 0,
-        child: Icon(Icons.chevron_right, color: color, size: 20),
-      ),
     );
   }
 }

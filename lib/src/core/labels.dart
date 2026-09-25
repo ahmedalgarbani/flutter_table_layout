@@ -37,6 +37,16 @@ class AdaptiveTableLabels {
   final String fieldRequired;
   final String invalidNumber;
   final String selectionRequired;
+  final String filter;
+  final String filterHelp;
+  final String freezeStart;
+  final String freezeEnd;
+  final String unfreeze;
+  final String resetColumns;
+  final String invalidValue;
+  final String retry;
+  final String groupBy;
+  final String noGrouping;
 
   /// `"Page 2 of 5 (48 items)"`.
   final String Function(int page, int totalPages, int totalItems) pageStatus;
@@ -84,6 +94,17 @@ class AdaptiveTableLabels {
     required this.fieldRequired,
     required this.invalidNumber,
     required this.selectionRequired,
+    this.filter = 'Filter…',
+    this.filterHelp =
+        'Filter this column: text, =exact, !=value, >10, <=5, 10..20, a, b',
+    this.freezeStart = 'Freeze at start',
+    this.freezeEnd = 'Freeze at end',
+    this.unfreeze = 'Unfreeze',
+    this.resetColumns = 'Reset columns',
+    this.invalidValue = 'Invalid value',
+    this.retry = 'Retry',
+    this.groupBy = 'Group by',
+    this.noGrouping = 'No grouping',
     required this.pageStatus,
     required this.rangeStatus,
     required this.selectedCount,
@@ -123,6 +144,17 @@ class AdaptiveTableLabels {
     fieldRequired: 'Field is required',
     invalidNumber: 'Invalid number format',
     selectionRequired: 'Selection required',
+    filter: 'Filter…',
+    filterHelp:
+        'Filter this column: text, =exact, !=value, >10, <=5, 10..20, a, b',
+    freezeStart: 'Freeze at start',
+    freezeEnd: 'Freeze at end',
+    unfreeze: 'Unfreeze',
+    resetColumns: 'Reset columns',
+    invalidValue: 'Invalid value',
+    retry: 'Retry',
+    groupBy: 'Group by',
+    noGrouping: 'No grouping',
     pageStatus: _enPageStatus,
     rangeStatus: _enRangeStatus,
     selectedCount: _enSelectedCount,
@@ -162,6 +194,16 @@ class AdaptiveTableLabels {
     fieldRequired: 'هذا الحقل مطلوب',
     invalidNumber: 'صيغة الرقم غير صحيحة',
     selectionRequired: 'يرجى الاختيار',
+    filter: 'تصفية…',
+    filterHelp: 'تصفية هذا العمود: نص، =مطابق، !=قيمة، >10، <=5، 10..20، أ, ب',
+    freezeStart: 'تثبيت في البداية',
+    freezeEnd: 'تثبيت في النهاية',
+    unfreeze: 'إلغاء التثبيت',
+    resetColumns: 'إعادة ضبط الأعمدة',
+    invalidValue: 'قيمة غير صالحة',
+    retry: 'إعادة المحاولة',
+    groupBy: 'تجميع حسب',
+    noGrouping: 'بدون تجميع',
     pageStatus: _arPageStatus,
     rangeStatus: _arRangeStatus,
     selectedCount: _arSelectedCount,
@@ -212,6 +254,16 @@ class AdaptiveTableLabels {
     String? fieldRequired,
     String? invalidNumber,
     String? selectionRequired,
+    String? filter,
+    String? filterHelp,
+    String? freezeStart,
+    String? freezeEnd,
+    String? unfreeze,
+    String? resetColumns,
+    String? invalidValue,
+    String? retry,
+    String? groupBy,
+    String? noGrouping,
     String Function(int page, int totalPages, int totalItems)? pageStatus,
     String Function(int from, int to, int total)? rangeStatus,
     String Function(int count)? selectedCount,
@@ -249,6 +301,16 @@ class AdaptiveTableLabels {
       fieldRequired: fieldRequired ?? this.fieldRequired,
       invalidNumber: invalidNumber ?? this.invalidNumber,
       selectionRequired: selectionRequired ?? this.selectionRequired,
+      filter: filter ?? this.filter,
+      filterHelp: filterHelp ?? this.filterHelp,
+      freezeStart: freezeStart ?? this.freezeStart,
+      freezeEnd: freezeEnd ?? this.freezeEnd,
+      unfreeze: unfreeze ?? this.unfreeze,
+      resetColumns: resetColumns ?? this.resetColumns,
+      invalidValue: invalidValue ?? this.invalidValue,
+      retry: retry ?? this.retry,
+      groupBy: groupBy ?? this.groupBy,
+      noGrouping: noGrouping ?? this.noGrouping,
       pageStatus: pageStatus ?? this.pageStatus,
       rangeStatus: rangeStatus ?? this.rangeStatus,
       selectedCount: selectedCount ?? this.selectedCount,
