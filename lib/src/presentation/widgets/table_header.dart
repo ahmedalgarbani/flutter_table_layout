@@ -31,6 +31,8 @@ class TableHeader<T> extends StatelessWidget {
   final List<Widget>? toolbarActions;
   final TableExportOptions exportOptions;
   final double mobileBreakpoint;
+  final TableExportCallback<T>? onExportRequested;
+  final TablePrintCallback<T>? onPrintRequested;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -49,6 +51,8 @@ class TableHeader<T> extends StatelessWidget {
     this.toolbarActions,
     this.exportOptions = const TableExportOptions(),
     this.mobileBreakpoint = 600,
+    this.onExportRequested,
+    this.onPrintRequested,
     required this.theme,
     this.labels = AdaptiveTableLabels.en,
   });
@@ -373,6 +377,14 @@ class TableHeader<T> extends StatelessWidget {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final rows = _rowsToExport(state);
+    if (onExportRequested != null) {
+      try {
+        await onExportRequested!(format, rows);
+      } catch (e) {
+        _showSnackbar(messenger, labels.exportFailed(format.name, e));
+      }
+      return;
+    }
     final definitions = columns.map((c) => c.definition).toList();
     final hidden = state.hiddenColumnIds;
     final formatLabel = switch (format) {
@@ -456,6 +468,10 @@ class TableHeader<T> extends StatelessWidget {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     try {
+      if (onPrintRequested != null) {
+        await onPrintRequested!(_rowsToExport(state));
+        return;
+      }
       await PdfExporter(
         font: exportOptions.pdfFont,
         boldFont: exportOptions.pdfBoldFont,

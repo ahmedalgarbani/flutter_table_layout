@@ -20,6 +20,27 @@ import 'table_header.dart';
 /// Alignment helper maps.
 typedef AdaptiveTableColumnAlignment = TableColumnAlignment;
 
+/// How rows are rendered.
+enum TableLayoutMode {
+  /// Cards below `mobileBreakpoint`, data grid above it (default).
+  auto,
+
+  /// Always the data grid (scrolls horizontally on small screens).
+  table,
+
+  /// Always expandable cards, even on wide screens.
+  cards,
+}
+
+/// Replaces the built-in export for a format. Receives the rows the table
+/// would export (selected rows if any, otherwise all filtered rows, in the
+/// current sort order).
+typedef TableExportCallback<T> =
+    Future<void> Function(ExportFormat format, List<T> rows);
+
+/// Replaces the built-in print action.
+typedef TablePrintCallback<T> = Future<void> Function(List<T> rows);
+
 /// Converts a raw cell value into the text shown in the table and written to
 /// PDF / Word exports.
 typedef CellValueFormatter = String Function(dynamic value);
@@ -192,8 +213,18 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Minimum scrollable width before desktop tabular layout overflows.
   final double minDesktopWidth;
 
-  /// Below this width rows are rendered as cards.
+  /// Below this width rows are rendered as cards (with [TableLayoutMode.auto]).
   final double mobileBreakpoint;
+
+  /// Forces the grid or the cards regardless of the screen width.
+  final TableLayoutMode layoutMode;
+
+  /// Your own export implementation (e.g. your PDF template). When set, the
+  /// export menu calls it instead of generating the file.
+  final TableExportCallback<T>? onExportRequested;
+
+  /// Your own print implementation.
+  final TablePrintCallback<T>? onPrintRequested;
 
   /// Callback when a row cell is clicked.
   final ValueChanged<T>? onRowTap;
@@ -285,6 +316,9 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.labels,
     this.minDesktopWidth = 800,
     this.mobileBreakpoint = 600,
+    this.layoutMode = TableLayoutMode.auto,
+    this.onExportRequested,
+    this.onPrintRequested,
     this.onRowTap,
     this.onRowLongPress,
     this.onSelectionChanged,
@@ -320,6 +354,16 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
     if (initial != null && initial > 0) return initial;
     return widget.pageSizes.contains(10) ? 10 : widget.pageSizes.first;
   }
+
+  /// Toolbar and footer switch to their compact layout by their own width,
+  /// independently of how the rows are rendered.
+  static const double _chromeCompactWidth = 600;
+
+  double get _contentBreakpoint => switch (widget.layoutMode) {
+    TableLayoutMode.auto => widget.mobileBreakpoint,
+    TableLayoutMode.table => 0,
+    TableLayoutMode.cards => double.infinity,
+  };
 
   List<ColumnDefinition> get _definitions =>
       widget.columns.map((c) => c.definition).toList();
@@ -413,7 +457,9 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           showColumnsToggle: widget.showColumnsToggle,
           toolbarActions: widget.toolbarActions,
           exportOptions: widget.exportOptions,
-          mobileBreakpoint: widget.mobileBreakpoint,
+          mobileBreakpoint: _chromeCompactWidth,
+          onExportRequested: widget.onExportRequested,
+          onPrintRequested: widget.onPrintRequested,
           theme: theme,
           labels: labels,
         ),
@@ -441,7 +487,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           loadingWidget: widget.loadingWidget,
           isLoading: widget.isLoading,
           minDesktopWidth: widget.minDesktopWidth,
-          mobileBreakpoint: widget.mobileBreakpoint,
+          mobileBreakpoint: _contentBreakpoint,
           onRowTap: widget.onRowTap,
           onRowLongPress: widget.onRowLongPress,
           rowColorBuilder: widget.rowColorBuilder,
@@ -458,7 +504,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           showPagination: widget.showPagination,
           showSummary: widget.showSummary,
           pageSizes: widget.pageSizes,
-          mobileBreakpoint: widget.mobileBreakpoint,
+          mobileBreakpoint: _chromeCompactWidth,
           theme: theme,
           labels: labels,
         ),

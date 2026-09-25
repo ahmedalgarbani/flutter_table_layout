@@ -21,6 +21,7 @@ keeps compiling, and the original tests pass unchanged.
 * **Pagination:** the current page was not clamped after filtering or deleting (it showed "No data" while data existed), and an empty table showed "Page 1 of 0".
 * **Filters:** the date pickers were shown even without a `dateProvider`. The picker crashed when `initialDate` was outside 2000–2100.
 * **Row details:** `expandedRowBuilder` only opened for *selected* rows (impossible when `showSelection: false`), and `onRowTap` was ignored on mobile.
+* **Footer:** the page numbers could overflow on phones when there were many pages.
 * **Toolbar:** it overflowed on narrow screens, and snackbars used a `BuildContext` across async gaps.
 * **Theme:** the default theme was always light, even in dark apps. Many colors were hard-coded blue.
 * **Dynamic form:**
@@ -34,6 +35,8 @@ keeps compiling, and the original tests pass unchanged.
 * Fixed every analyzer deprecation (`withOpacity`, `dart:html`, `Share.shareXFiles`, `DropdownButtonFormField.value`, `Switch.activeColor`).
 
 ### New
+* `layoutMode` (`TableLayoutMode.auto` / `table` / `cards`) to force the grid on phones or cards on desktop.
+* `onExportRequested` / `onPrintRequested` to plug in your own export and print implementations.
 * `AdaptiveTableController` to search, filter, sort, paginate and select from outside.
 * `onSelectionChanged`, `onTableStateChanged`, `onRowLongPress`, `rowColorBuilder`, `toolbarActions`, `isLoading`, `showClearFilters`, `showDateFilter`, `initialPageSize`, `initialSortColumnId` / `initialSortAscending`, `mobileBreakpoint`, `mobileTitleColumnId` / `mobileSubtitleColumnId`, `searchDebounce`, `firstDate` / `lastDate`.
 * Column options: `valueFormatter`, `isSearchable`, `isExportable`, `isHideable`. `fieldName` is now optional.
@@ -54,7 +57,7 @@ keeps compiling, and the original tests pass unchanged.
 * `saveAndShareFile` returns `Future<String?>` (the saved path or file name).
 
 ### Project
-* 69 unit and widget tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
+* 74 unit and widget tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
 
 ## 0.0.2
 

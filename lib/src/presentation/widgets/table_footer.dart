@@ -99,6 +99,8 @@ class TableFooter<T> extends StatelessWidget {
             totalPages,
             compact: narrow,
           );
+          // FittedBox: the controls shrink instead of overflowing on very
+          // small widths or with many pages.
           if (narrow) {
             return Column(
               mainAxisSize: MainAxisSize.min,
@@ -111,16 +113,26 @@ class TableFooter<T> extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                controls,
+                FittedBox(fit: BoxFit.scaleDown, child: controls),
               ],
             );
           }
           return Row(
             children: [
               Expanded(child: status),
-              pageSize,
-              const SizedBox(width: 16),
-              controls,
+              Flexible(
+                flex: 3,
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [pageSize, const SizedBox(width: 16), controls],
+                    ),
+                  ),
+                ),
+              ),
             ],
           );
         },
@@ -197,7 +209,7 @@ class TableFooter<T> extends StatelessWidget {
         for (final page in _visiblePages(
           currentPage,
           totalPages,
-          compact ? 3 : 5,
+          compact ? 1 : 5,
         ))
           page == null
               ? Padding(

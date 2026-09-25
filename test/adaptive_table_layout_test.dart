@@ -328,4 +328,67 @@ void main() {
     );
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
+
+  for (final mode in TableLayoutMode.values) {
+    testWidgets('phone with many pages does not overflow ($mode)', (
+      tester,
+    ) async {
+      await pumpTable(
+        tester,
+        AdaptiveTableLayout<Person>(
+          title: 'People',
+          items: people(60),
+          columns: columns(),
+          valueProviders: providers,
+          layoutMode: mode,
+          onAddNewPressed: () {},
+          onRefreshPressed: () {},
+        ),
+        size: const Size(360, 1600),
+      );
+      expect(tester.takeException(), isNull);
+      // Only the grid has a column-header row.
+      final hasHeaderRow = find.text('Name').evaluate().isNotEmpty;
+      expect(hasHeaderRow, mode == TableLayoutMode.table);
+    });
+  }
+
+  testWidgets('layoutMode.cards renders cards on desktop', (tester) async {
+    await pumpTable(
+      tester,
+      AdaptiveTableLayout<Person>(
+        items: people(3),
+        columns: columns(),
+        valueProviders: providers,
+        layoutMode: TableLayoutMode.cards,
+      ),
+    );
+    expect(find.text('Name'), findsNothing); // no column-header row
+    expect(find.text('Person 1'), findsOneWidget);
+  });
+
+  testWidgets('onExportRequested replaces the built-in export', (tester) async {
+    ExportFormat? format;
+    List<Person>? rows;
+    await pumpTable(
+      tester,
+      AdaptiveTableLayout<Person>(
+        items: people(12),
+        columns: columns(),
+        valueProviders: providers,
+        onExportRequested: (f, r) async {
+          format = f;
+          rows = r;
+        },
+      ),
+    );
+    await tester.tap(find.byType(Checkbox).at(2)); // second row
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Export data'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save PDF'));
+    await tester.pumpAndSettle();
+    expect(format, ExportFormat.pdf);
+    expect(rows!.map((p) => p.id), [2]);
+  });
 }

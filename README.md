@@ -26,8 +26,10 @@
 - [Summary row](#summary-row)
 - [Controlling the table from outside](#controlling-the-table-from-outside)
 - [Loading and empty states](#loading-and-empty-states)
+- [Layout mode (grid or cards)](#layout-mode-grid-or-cards)
 - [Export and printing](#export-and-printing)
 - [Dynamic forms (CRUD)](#dynamic-forms-crud)
+- [Hiding features and permissions](#hiding-features-and-permissions)
 - [Themes](#themes)
 - [Localization and RTL](#localization-and-rtl)
 - [API reference](#api-reference)
@@ -294,6 +296,19 @@ AdaptiveTableLayout<T>(
 
 If a value provider throws, the table shows an error message instead of crashing, and recovers on the next change.
 
+## Layout mode (grid or cards)
+
+```dart
+AdaptiveTableLayout<T>(
+  layoutMode: TableLayoutMode.auto,  // default: cards below mobileBreakpoint
+  // layoutMode: TableLayoutMode.table, // always the grid (scrolls horizontally on phones)
+  // layoutMode: TableLayoutMode.cards, // always cards, even on desktop
+  mobileBreakpoint: 700,             // only used by `auto`
+)
+```
+
+The toolbar and footer always adapt to the available width, whatever the mode.
+
 ## Export and printing
 
 The toolbar has **Excel**, **Word**, **PDF** and **Print** actions. Exports:
@@ -315,6 +330,21 @@ AdaptiveTableLayout<T>(
     // Handle the bytes yourself (upload, e-mail…) instead of saving:
     onExport: (format, bytes, fileName) async => upload(bytes, fileName),
   ),
+)
+```
+
+**Use your own export or print** (for example your company PDF template). The table gives you the rows it would export: the selected rows if any, otherwise all filtered rows, in the current sort order.
+
+```dart
+AdaptiveTableLayout<Invoice>(
+  onExportRequested: (format, rows) async {
+    if (format == ExportFormat.pdf) {
+      final bytes = await MyInvoicePdf.build(rows);
+      await saveAndShareFile(bytes: bytes, fileName: 'invoices.pdf',
+          mimeType: format.mimeType);
+    }
+  },
+  onPrintRequested: (rows) => MyPrinter.print(rows),
 )
 ```
 
@@ -378,6 +408,48 @@ DynamicFormField(
   validator: (v) => (v as String?)?.contains('@') == true ? null : 'Invalid e-mail',
 ),
 ```
+
+## Hiding features and permissions
+
+Every part of the table can be turned off, and a button whose callback is `null` is not shown. So permissions are just values:
+
+```dart
+final canEdit = user.can('invoices.edit');
+
+AdaptiveTableLayout<Invoice>(
+  showSearch: true,
+  showDateFilter: false,                    // hide the From / To pickers
+  showExport: user.can('invoices.export'),
+  showPrint: user.can('invoices.print'),
+  showSelection: canEdit,
+  showColumnsToggle: true,
+  showPagination: true,
+  showSummary: user.can('invoices.totals'),
+  showClearFilters: true,
+  onAddNewPressed: user.can('invoices.create') ? openMyAddDialog : null,
+  onRefreshPressed: reload,
+  exportOptions: const TableExportOptions(formats: {ExportFormat.excel}), // only Excel
+  columns: [
+    // …
+    if (canEdit)
+      AdaptiveTableColumn(
+        id: 'actions', title: 'Actions', width: 130,
+        isSortable: false, isSearchable: false, isExportable: false,
+        cellBuilder: (context, inv) => Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(icon: const Icon(Icons.edit), onPressed: () => openMyEditDialog(inv)),
+          if (user.can('invoices.delete'))
+            IconButton(icon: const Icon(Icons.delete), onPressed: () => delete(inv)),
+        ]),
+      ),
+  ],
+  onRowTap: canEdit ? openMyEditDialog : null,
+)
+```
+
+- The filter bar disappears when search, the date filter and custom filters are all off.
+- The toolbar disappears when there is no title and no action.
+- `onAddNewPressed` can open **any** dialog or page, so `DynamicFormDialog` is optional.
+- Sensitive columns: include them only when allowed (`if (user.isAdmin) AdaptiveTableColumn(...)`), or use `isHideable: false` / `isExportable: false`.
 
 ## Themes
 
@@ -446,7 +518,9 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `onSelectionChanged` | `ValueChanged<List<T>>?` | `null` | Selection updates. |
 | `onTableStateChanged` | `ValueChanged<TableStateModel>?` | `null` | Search / filter / sort / page updates. |
 | `rowColorBuilder` | `Color? Function(T)?` | `null` | Per-row background. |
+| `layoutMode` | `TableLayoutMode` | `auto` | `auto`, `table` (always grid), `cards` (always cards). |
 | `mobileBreakpoint` / `minDesktopWidth` | `double` | `600` / `800` | Layout thresholds. |
+| `onExportRequested` / `onPrintRequested` | callbacks | `null` | Replace the built-in export / print with your own. |
 | `mobileTitleColumnId` / `mobileSubtitleColumnId` | `String?` | first / second column | Card title and subtitle. |
 | `theme` / `labels` | | `AdaptiveTableTheme.of` / `AdaptiveTableLabels.of` | Styling and strings. |
 | `searchDebounce` | `Duration` | `250ms` | Search delay. |
