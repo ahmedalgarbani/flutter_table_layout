@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../core/labels.dart';
 import '../../core/theme.dart';
-import '../../domain/models/column_definition.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
 import 'adaptive_table_layout.dart';
+import 'grid/cell_renderer.dart';
+import 'grid/table_entries.dart';
+import 'grid/table_grid.dart';
 
 /// The core content renderer. Detects screen size and toggles between a dense
 /// desktop tabular view and a responsive mobile card list view.
@@ -14,10 +18,25 @@ class TableContent<T> extends StatelessWidget {
   final bool showSelection;
   final Widget? emptyWidget;
   final Widget? loadingWidget;
+  final bool isLoading;
   final double minDesktopWidth;
+  final double mobileBreakpoint;
   final ValueChanged<T>? onRowTap;
+  final ValueChanged<T>? onRowLongPress;
+  final Color? Function(T item)? rowColorBuilder;
   final Widget Function(BuildContext, T)? expandedRowBuilder;
+  final String? mobileTitleColumnId;
+  final String? mobileSubtitleColumnId;
+  final bool showColumnFilters;
+  final bool allowColumnResize;
+  final bool allowColumnReorder;
+  final bool enableKeyboardNavigation;
+  final CellEditCallback<T>? onCellEdited;
+  final CanEditCell<T>? canEditCell;
+  final GroupHeaderBuilder<T>? groupHeaderBuilder;
+  final double minRowHeight;
   final AdaptiveTableTheme theme;
+  final AdaptiveTableLabels labels;
 
   const TableContent({
     super.key,
@@ -26,465 +45,511 @@ class TableContent<T> extends StatelessWidget {
     required this.showSelection,
     this.emptyWidget,
     this.loadingWidget,
+    this.isLoading = false,
     required this.minDesktopWidth,
+    this.mobileBreakpoint = 600,
     this.onRowTap,
+    this.onRowLongPress,
+    this.rowColorBuilder,
     this.expandedRowBuilder,
+    this.mobileTitleColumnId,
+    this.mobileSubtitleColumnId,
+    this.showColumnFilters = false,
+    this.allowColumnResize = true,
+    this.allowColumnReorder = true,
+    this.enableKeyboardNavigation = true,
+    this.onCellEdited,
+    this.canEditCell,
+    this.groupHeaderBuilder,
+    this.minRowHeight = 0,
     required this.theme,
+    this.labels = AdaptiveTableLabels.en,
   });
+
+  CellRenderer<T> get _renderer => CellRenderer<T>(
+    valueProviders: valueProviders,
+    theme: theme,
+    rowColorBuilder: rowColorBuilder,
+  );
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<TableCubit<T>, TableCubitState<T>>(
       builder: (context, state) {
-        if (state is TableLoading<T>) {
-          return loadingWidget ??
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: CircularProgressIndicator(),
-                ),
-              );
+        if (state is TableLoading<T> || state is TableInitial<T>) {
+          return _loadingIndicator();
         }
 
         if (state is TableError<T>) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32.0),
-              child: Text(
-                state.errorMessage,
-                style: const TextStyle(color: Colors.red),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 40,
+                    color: theme.statusNegativeColor,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    state.errorMessage,
+                    textAlign: TextAlign.center,
+                    style: theme.rowTextStyle.copyWith(
+                      color: theme.statusNegativeColor,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(labels.retry),
+                    onPressed: () => context.read<TableCubit<T>>().refresh(),
+                  ),
+                ],
               ),
             ),
           );
         }
 
-        if (state is TableLoaded<T>) {
-          final items = state.paginatedItems;
-          if (items.isEmpty) {
-            return emptyWidget ??
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.inbox_outlined,
-                          size: 48,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          Directionality.of(context) == TextDirection.rtl
-                              ? 'لا توجد بيانات متاحة'
-                              : 'No data available',
-                          style: theme.footerTextStyle,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-          }
+        if (state is! TableLoaded<T>) return const SizedBox.shrink();
 
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              // Breakpoint for adaptive layouts
-              if (constraints.maxWidth < 600) {
-                return _buildMobileLayout(context, items, state);
+        final loading = isLoading || state.isFetching;
+        final items = state.paginatedItems;
+
+        final content = LayoutBuilder(
+          builder: (context, constraints) {
+            final mobile = constraints.maxWidth < mobileBreakpoint;
+            if (items.isEmpty && (mobile || !showColumnFilters)) {
+              if (loading && state.originalItems.isEmpty) {
+                return _loadingIndicator();
               }
-              return _buildDesktopLayout(
+              return emptyWidget ?? _defaultEmpty(state);
+            }
+            if (mobile) {
+              return _buildMobileLayout(
                 context,
-                items,
                 state,
-                constraints.maxWidth,
+                bounded: constraints.hasBoundedHeight,
               );
-            },
-          );
-        }
+            }
+            return TableGrid<T>(
+              state: state,
+              columns: columns,
+              renderer: _renderer,
+              showSelection: showSelection,
+              minDesktopWidth: minDesktopWidth,
+              onRowTap: onRowTap,
+              onRowLongPress: onRowLongPress,
+              expandedRowBuilder: expandedRowBuilder,
+              showColumnFilters: showColumnFilters,
+              allowColumnResize: allowColumnResize,
+              allowColumnReorder: allowColumnReorder,
+              enableKeyboardNavigation: enableKeyboardNavigation,
+              onCellEdited: onCellEdited,
+              canEditCell: canEditCell,
+              groupHeaderBuilder: groupHeaderBuilder,
+              minRowHeight: minRowHeight,
+              emptyPlaceholder: emptyWidget ?? _defaultEmpty(state),
+              theme: theme,
+              labels: labels,
+            );
+          },
+        );
 
-        return const SizedBox.shrink();
+        if (!loading) return content;
+        return Stack(
+          fit: StackFit.passthrough,
+          children: [
+            AbsorbPointer(child: Opacity(opacity: 0.6, child: content)),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                color: theme.accentColor,
+              ),
+            ),
+          ],
+        );
       },
     );
   }
 
-  // --- Desktop Render Engine ---
-
-  Widget _buildDesktopLayout(
-    BuildContext context,
-    List<T> items,
-    TableLoaded<T> state,
-    double availableWidth,
-  ) {
-    final useHorizontalScroll = availableWidth < minDesktopWidth;
-    final tableWidget = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Column Headers
-        _buildDesktopHeader(context, state),
-        const Divider(height: 1, thickness: 1),
-        // Rows List
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: items.length,
-          separatorBuilder: (context, index) =>
-              Divider(height: 1, color: theme.dividerColor),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            final isSelected = state.selectedItems.contains(item);
-            final isAlternate = theme.useAlternateRows && (index % 2 == 1);
-            return _buildDesktopRow(context, item, isSelected, isAlternate);
-          },
-        ),
-      ],
-    );
-
-    if (useHorizontalScroll) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(width: minDesktopWidth, child: tableWidget),
-      );
-    }
-    return tableWidget;
+  Widget _loadingIndicator() {
+    return loadingWidget ??
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: CircularProgressIndicator(color: theme.accentColor),
+          ),
+        );
   }
 
-  Widget _buildDesktopHeader(BuildContext context, TableLoaded<T> state) {
-    final visibleCols = columns
-        .where((c) => !state.hiddenColumnIds.contains(c.id))
-        .toList();
-
-    return Container(
-      color: theme.headerBackgroundColor,
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          // Select All Checkbox
-          if (showSelection)
-            SizedBox(
-              width: 50,
-              child: Checkbox(
-                value:
-                    state.selectedItems.length ==
-                        state.filteredAndSortedItems.length &&
-                    state.filteredAndSortedItems.isNotEmpty,
-                onChanged: (val) {
-                  context.read<TableCubit<T>>().toggleSelectAll(val ?? false);
-                },
-              ),
-            ),
-
-          // Render Column Titles
-          ...visibleCols.map((col) {
-            final isSorted = state.tableState.sortByColumnId == col.id;
-            final isAscending = state.tableState.sortAscending;
-
-            Widget headerCell = InkWell(
-              onTap: col.isSortable
-                  ? () => context.read<TableCubit<T>>().toggleSort(col.id)
-                  : null,
-              child: Padding(
-                padding: theme.headerPadding,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: _getAlignment(col.alignment),
-                  children: [
-                    if (col.headerBuilder != null)
-                      Flexible(child: col.headerBuilder!(context))
-                    else
-                      Flexible(
-                        child: Text(
-                          col.title,
-                          style: theme.headerTextStyle,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    if (col.isSortable) ...[
-                      const SizedBox(width: 4),
-                      AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
-                        opacity: isSorted ? 1.0 : 0.2,
-                        child: Icon(
-                          isSorted
-                              ? (isAscending
-                                    ? Icons.arrow_upward
-                                    : Icons.arrow_downward)
-                              : Icons.arrow_upward,
-                          size: 14,
-                          color: isSorted
-                              ? Colors.blue.shade600
-                              : theme.actionIconColor,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-
-            // Alignment wrapper
-            headerCell = Align(
-              alignment: _getAlignPlacement(col.alignment),
-              child: headerCell,
-            );
-
-            if (col.width != null) {
-              return SizedBox(width: col.width, child: headerCell);
-            }
-            return Expanded(flex: col.flex, child: headerCell);
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDesktopRow(
-    BuildContext context,
-    T item,
-    bool isSelected,
-    bool isAlternate,
-  ) {
-    final state = context.read<TableCubit<T>>().state as TableLoaded<T>;
-    final visibleCols = columns
-        .where((c) => !state.hiddenColumnIds.contains(c.id))
-        .toList();
-
-    return Material(
-      color: isSelected
-          ? Colors.blue.shade500.withOpacity(0.08)
-          : (isAlternate
-                ? theme.alternateRowBackgroundColor
-                : theme.rowBackgroundColor),
-      child: InkWell(
-        hoverColor: theme.rowHoverColor,
-        onTap: () {
-          if (onRowTap != null) onRowTap!(item);
-        },
+  Widget _defaultEmpty(TableLoaded<T> state) {
+    final filtered =
+        state.originalItems.isNotEmpty && state.tableState.hasActiveFilters;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  // Row Selection Checkbox
-                  if (showSelection)
-                    SizedBox(
-                      width: 50,
-                      child: Checkbox(
-                        value: isSelected,
-                        onChanged: (val) {
-                          context.read<TableCubit<T>>().toggleRowSelection(
-                            item,
-                          );
-                        },
-                      ),
-                    ),
-
-                  // Cells
-                  ...visibleCols.map((col) {
-                    Widget cellChild;
-                    if (col.cellBuilder != null) {
-                      cellChild = col.cellBuilder!(context, item);
-                    } else {
-                      final extractor = valueProviders[col.id];
-                      final val = extractor != null ? extractor(item) : '';
-                      cellChild = Text(
-                        val?.toString() ?? '',
-                        style: theme.rowTextStyle,
-                        overflow: TextOverflow.ellipsis,
-                      );
-                    }
-
-                    // Apply layout alignments
-                    cellChild = Padding(
-                      padding: theme.rowPadding,
-                      child: Align(
-                        alignment: _getAlignPlacement(col.alignment),
-                        child: cellChild,
-                      ),
-                    );
-
-                    if (col.width != null) {
-                      return SizedBox(
-                        width: col.width,
-                        child: ClipRect(child: cellChild),
-                      );
-                    }
-                    return Expanded(
-                      flex: col.flex,
-                      child: ClipRect(child: cellChild),
-                    );
-                  }),
-                ],
-              ),
+            Icon(
+              filtered ? Icons.search_off : Icons.inbox_outlined,
+              size: 48,
+              color: theme.actionIconColor.withValues(alpha: 0.4),
             ),
-            if (expandedRowBuilder != null && isSelected)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16.0),
-                color: theme.headerBackgroundColor.withOpacity(0.5),
-                child: expandedRowBuilder!(context, item),
-              ),
+            const SizedBox(height: 8),
+            Text(
+              filtered ? labels.noResults : labels.noData,
+              style: theme.footerTextStyle,
+            ),
           ],
         ),
       ),
     );
   }
 
+  VoidCallback? _tapHandler(BuildContext context, T item) {
+    if (onRowTap != null) return () => onRowTap!(item);
+    if (expandedRowBuilder != null) {
+      return () => context.read<TableCubit<T>>().toggleRowExpansion(item);
+    }
+    return null;
+  }
+
   // --- Mobile Adaptive Render Engine ---
 
   Widget _buildMobileLayout(
     BuildContext context,
-    List<T> items,
-    TableLoaded<T> state,
-  ) {
-    final visibleCols = columns
-        .where((c) => !state.hiddenColumnIds.contains(c.id))
-        .toList();
+    TableLoaded<T> state, {
+    required bool bounded,
+  }) {
+    final visibleCols = state.arrange(columns, (c) => c.definition);
     if (visibleCols.isEmpty) return const SizedBox.shrink();
+    final renderer = _renderer;
+    final selected = state.selectedItems.toSet();
+    final expanded = state.expandedItems.toSet();
+    final groupId = state.tableState.groupByColumnId;
+    final entries = buildTableEntries<T>(
+      state,
+      valueProviders: valueProviders,
+      groupFormatter: groupId == null
+          ? null
+          : columns.where((c) => c.id == groupId).firstOrNull?.valueFormatter,
+    );
 
-    // Use first column as identifier title, and second column as header value
-    final titleCol = visibleCols.first;
-    final subtitleCol = visibleCols.length > 1 ? visibleCols[1] : null;
+    AdaptiveTableColumn<T>? byId(String? id) =>
+        id == null ? null : visibleCols.where((c) => c.id == id).firstOrNull;
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final isSelected = state.selectedItems.contains(item);
+    final titleCol = byId(mobileTitleColumnId) ?? visibleCols.first;
+    final subtitleCol =
+        byId(mobileSubtitleColumnId) ??
+        visibleCols.where((c) => c != titleCol).firstOrNull;
+    final detailCols = visibleCols
+        .where((c) => c != titleCol && c != subtitleCol)
+        .toList();
 
-        final titleExtractor = valueProviders[titleCol.id];
-        final cardTitle = titleExtractor != null
-            ? titleExtractor(item)?.toString() ?? ''
-            : '';
-
-        String? cardSubtitle;
-        if (subtitleCol != null) {
-          final subtitleExtractor = valueProviders[subtitleCol.id];
-          cardSubtitle = subtitleExtractor != null
-              ? subtitleExtractor(item)?.toString()
-              : null;
-        }
-
-        return Card(
-          elevation: 1,
-          margin: const EdgeInsets.only(bottom: 10),
-          color: isSelected
-              ? Colors.blue.shade500.withOpacity(0.04)
-              : theme.cardBackgroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: BorderSide(
-              color: isSelected ? Colors.blue.shade300 : theme.dividerColor,
-              width: isSelected ? 1.5 : 1,
-            ),
-          ),
-          child: ExpansionTile(
-            title: Row(
-              children: [
-                if (showSelection) ...[
-                  Checkbox(
-                    value: isSelected,
-                    onChanged: (val) {
-                      context.read<TableCubit<T>>().toggleRowSelection(item);
-                    },
-                  ),
-                  const SizedBox(width: 4),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        cardTitle,
-                        style: theme.headerTextStyle.copyWith(
-                          fontSize: 14,
-                          color: Colors.blue.shade800,
-                        ),
+    Widget buildEntry(BuildContext context, TableEntry<T> entry) {
+      if (entry is GroupEntry<T>) {
+        return _mobileGroupHeader(context, entry.info);
+      }
+      final item = (entry as RowEntry<T>).item;
+      final isSelected = selected.contains(item);
+      return _MobileCard<T>(
+        item: item,
+        isSelected: isSelected,
+        isExpanded: expanded.contains(item),
+        canExpand: detailCols.isNotEmpty || expandedRowBuilder != null,
+        showSelection: showSelection,
+        theme: theme,
+        labels: labels,
+        backgroundColor: renderer.rowColor(
+          item,
+          selected: isSelected,
+          alternate: false,
+        ),
+        title: _mobileText(context, titleCol, item, isTitle: true),
+        subtitle: subtitleCol == null
+            ? null
+            : _mobileText(context, subtitleCol, item),
+        details: [
+          for (final col in detailCols)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      col.title,
+                      style: theme.footerTextStyle.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      if (cardSubtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(cardSubtitle, style: theme.footerTextStyle),
-                      ],
-                    ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    flex: 2,
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: renderer.cellFor(context, col, item),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        expandedBuilder: expandedRowBuilder == null
+            ? null
+            : (context) => expandedRowBuilder!(context, item),
+        onTap: _tapHandler(context, item),
+        onLongPress: onRowLongPress == null
+            ? null
+            : () => onRowLongPress!(item),
+      );
+    }
+
+    const padding = EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+    if (bounded) {
+      // Lazy building: only the visible cards are created.
+      return Scrollbar(
+        child: ListView.builder(
+          padding: padding,
+          itemCount: entries.length,
+          itemBuilder: (context, i) => buildEntry(context, entries[i]),
+        ),
+      );
+    }
+    return Padding(
+      padding: padding,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [for (final e in entries) buildEntry(context, e)],
+      ),
+    );
+  }
+
+  Widget _mobileGroupHeader(BuildContext context, TableGroupInfo<T> info) {
+    final col = columns.where((c) => c.id == info.columnId).firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 4),
+      child: Material(
+        color: theme.headerBackgroundColor,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () =>
+              context.read<TableCubit<T>>().toggleGroupCollapsed(info.key),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              children: [
+                AnimatedRotation(
+                  duration: const Duration(milliseconds: 200),
+                  // chevron_right mirrors in RTL, so the rotation does too.
+                  turns: info.isCollapsed
+                      ? 0
+                      : (Directionality.of(context) == TextDirection.rtl
+                            ? -0.25
+                            : 0.25),
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: theme.actionIconColor,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${col?.title ?? ''}: ${info.key.isEmpty ? '—' : info.key}',
+                    style: theme.headerTextStyle.copyWith(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '${info.rows.length}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: theme.accentColor,
                   ),
                 ),
               ],
             ),
-            children: [
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                child: Column(
-                  children: visibleCols.skip(2).map((col) {
-                    final colValExtractor = valueProviders[col.id];
-                    Widget valWidget;
-                    if (col.cellBuilder != null) {
-                      valWidget = col.cellBuilder!(context, item);
-                    } else {
-                      final val = colValExtractor != null
-                          ? colValExtractor(item)
-                          : '';
-                      valWidget = Text(
-                        val?.toString() ?? '',
-                        style: theme.rowTextStyle,
-                      );
-                    }
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            col.title,
-                            style: theme.footerTextStyle.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          valWidget,
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              if (expandedRowBuilder != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  color: theme.headerBackgroundColor.withOpacity(0.5),
-                  child: expandedRowBuilder!(context, item),
-                ),
-            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  // --- Alignment Helpers ---
-
-  MainAxisAlignment _getAlignment(TableColumnAlignment alignment) {
-    return switch (alignment) {
-      TableColumnAlignment.start => MainAxisAlignment.start,
-      TableColumnAlignment.center => MainAxisAlignment.center,
-      TableColumnAlignment.end => MainAxisAlignment.end,
-    };
+  Widget _mobileText(
+    BuildContext context,
+    AdaptiveTableColumn<T> col,
+    T item, {
+    bool isTitle = false,
+  }) {
+    // Prefer plain text (it fits the card typography); fall back to the
+    // custom cell when there is no value provider.
+    if (!valueProviders.containsKey(col.id) && col.cellBuilder != null) {
+      return col.cellBuilder!(context, item);
+    }
+    return Text(
+      _renderer.textFor(col, item),
+      maxLines: isTitle ? 2 : 1,
+      overflow: TextOverflow.ellipsis,
+      style: isTitle
+          ? theme.headerTextStyle.copyWith(
+              fontSize: 14,
+              color: theme.headerGradient != null ? theme.accentColor : null,
+            )
+          : theme.footerTextStyle,
+    );
   }
+}
 
-  Alignment _getAlignPlacement(TableColumnAlignment alignment) {
-    return switch (alignment) {
-      TableColumnAlignment.start => Alignment.centerLeft,
-      TableColumnAlignment.center => Alignment.center,
-      TableColumnAlignment.end => Alignment.centerRight,
-    };
+class _MobileCard<T> extends StatelessWidget {
+  final T item;
+  final bool isSelected;
+  final bool isExpanded;
+  final bool canExpand;
+  final bool showSelection;
+  final AdaptiveTableTheme theme;
+  final AdaptiveTableLabels labels;
+  final Color backgroundColor;
+  final Widget title;
+  final Widget? subtitle;
+  final List<Widget> details;
+  final WidgetBuilder? expandedBuilder;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  const _MobileCard({
+    required this.item,
+    required this.isSelected,
+    required this.isExpanded,
+    required this.canExpand,
+    required this.showSelection,
+    required this.theme,
+    required this.labels,
+    required this.backgroundColor,
+    required this.title,
+    required this.subtitle,
+    required this.details,
+    required this.expandedBuilder,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<TableCubit<T>>();
+    final radius = BorderRadius.circular(10);
+    final tap =
+        onTap ?? (canExpand ? () => cubit.toggleRowExpansion(item) : null);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        border: Border.all(
+          color: isSelected ? theme.accentColor : theme.dividerColor,
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      child: Material(
+        color: backgroundColor,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: tap,
+          onLongPress: onLongPress,
+          hoverColor: theme.rowHoverColor,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(4, 8, 4, 8),
+                child: Row(
+                  children: [
+                    if (showSelection)
+                      Checkbox(
+                        value: isSelected,
+                        activeColor: theme.accentColor,
+                        checkColor: theme.onAccentColor,
+                        side: BorderSide(
+                          color: theme.actionIconColor,
+                          width: 1.5,
+                        ),
+                        onChanged: (_) => cubit.toggleRowSelection(item),
+                      )
+                    else
+                      const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          title,
+                          if (subtitle != null) ...[
+                            const SizedBox(height: 2),
+                            subtitle!,
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (canExpand)
+                      IconButton(
+                        tooltip: isExpanded ? labels.collapse : labels.expand,
+                        onPressed: () => cubit.toggleRowExpansion(item),
+                        icon: AnimatedRotation(
+                          duration: const Duration(milliseconds: 200),
+                          turns: isExpanded ? 0.5 : 0,
+                          child: Icon(
+                            Icons.expand_more,
+                            color: theme.actionIconColor,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                alignment: AlignmentDirectional.topStart,
+                child: isExpanded && canExpand
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Divider(height: 1, color: theme.dividerColor),
+                          if (details.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              child: Column(children: details),
+                            ),
+                          if (expandedBuilder != null)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              color: theme.headerBackgroundColor.withValues(
+                                alpha: 0.5,
+                              ),
+                              child: expandedBuilder!(context),
+                            ),
+                        ],
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

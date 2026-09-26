@@ -1,5 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_table_layout/flutter_table_layout.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('verify package exports compile', () {

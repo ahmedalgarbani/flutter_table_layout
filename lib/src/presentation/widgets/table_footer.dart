@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../core/labels.dart';
 import '../../core/theme.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
@@ -11,7 +13,9 @@ class TableFooter<T> extends StatelessWidget {
   final bool showPagination;
   final bool showSummary;
   final List<int> pageSizes;
+  final double mobileBreakpoint;
   final AdaptiveTableTheme theme;
+  final AdaptiveTableLabels labels;
 
   const TableFooter({
     super.key,
@@ -19,36 +23,30 @@ class TableFooter<T> extends StatelessWidget {
     required this.showPagination,
     required this.showSummary,
     required this.pageSizes,
+    this.mobileBreakpoint = 600,
     required this.theme,
+    this.labels = AdaptiveTableLabels.en,
   });
 
   @override
   Widget build(BuildContext context) {
-    final textDirection = Directionality.of(context);
-    final isRtl = textDirection == TextDirection.rtl;
-
     return BlocBuilder<TableCubit<T>, TableCubitState<T>>(
       builder: (context, state) {
         if (state is! TableLoaded<T>) return const SizedBox.shrink();
 
         final items = state.filteredAndSortedItems;
-        final totalCount = state.totalCount;
-        final tState = state.tableState;
-
-        // Calculate pages
-        final totalPages = (totalCount / tState.pageSize).ceil();
-        final currentPage = tState.currentPage;
+        final showSummaryRow =
+            showSummary && summaryBuilder != null && items.isNotEmpty;
 
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 1. Aggregation / Summary row
-            if (showSummary && summaryBuilder != null && items.isNotEmpty)
+            if (showSummaryRow)
               Container(
                 decoration: BoxDecoration(
-                  color: theme.headerGradient != null ? null : theme.headerBackgroundColor.withOpacity(0.4),
-                  gradient: theme.headerGradient,
+                  color: theme.effectiveSummaryBackgroundColor,
                   border: Border(
                     top: BorderSide(color: theme.dividerColor, width: 1),
                   ),
@@ -61,173 +59,179 @@ class TableFooter<T> extends StatelessWidget {
               ),
 
             // 2. Pagination bar
-            if (showPagination)
-              Container(
-                decoration: BoxDecoration(
-                  color: theme.footerGradient != null ? null : theme.footerBackgroundColor,
-                  gradient: theme.footerGradient,
-                  border: Border(
-                    top: BorderSide(color: theme.dividerColor, width: 1.0),
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16.0,
-                  vertical: 10.0,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Slice text (e.g. "1 to 10 of 20 entries")
-                    Flexible(
-                      child: Text(
-                        _buildStatusText(
-                          currentPage,
-                          totalPages,
-                          totalCount,
-                          isRtl,
-                        ),
-                        style: theme.footerTextStyle,
-                      ),
-                    ),
-
-                    // Page size dropdown & Arrow navigators
-                    Wrap(
-                      spacing: 16,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        // Page Size Dropdown
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              isRtl ? 'العناصر في كل صفحة:' : 'Items per page:',
-                              style: theme.footerTextStyle.copyWith(
-                                fontSize: 11,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            SizedBox(
-                              height: 30,
-                              child: DropdownButton<int>(
-                                value: tState.pageSize,
-                                dropdownColor: theme.cardBackgroundColor,
-                                underline: const SizedBox.shrink(),
-                                style: theme.footerTextStyle.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                icon: const Icon(
-                                  Icons.arrow_drop_down,
-                                  size: 16,
-                                ),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    context.read<TableCubit<T>>().setPageSize(
-                                      val,
-                                    );
-                                  }
-                                },
-                                items: pageSizes.map((size) {
-                                  return DropdownMenuItem<int>(
-                                    value: size,
-                                    child: Text('$size'),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        // Navigation arrows
-                        _buildPaginationControls(
-                          context,
-                          currentPage,
-                          totalPages,
-                          isRtl,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            if (showPagination) _buildPaginationBar(context, state),
           ],
         );
       },
     );
   }
 
-  String _buildStatusText(int page, int totalPages, int count, bool isRtl) {
-    if (isRtl) {
-      return '$page من $totalPages صفحة ($count عنصر)';
-    }
-    return 'Page $page of $totalPages ($count items)';
+  Widget _buildPaginationBar(BuildContext context, TableLoaded<T> state) {
+    final tState = state.tableState;
+    final totalPages = state.totalPages;
+    final currentPage = tState.currentPage.clamp(1, totalPages);
+    final total = state.totalCount;
+    final from = total == 0 ? 0 : (currentPage - 1) * tState.pageSize + 1;
+    final to = total == 0 ? 0 : (currentPage * tState.pageSize).clamp(0, total);
+
+    final status = Text(
+      labels.rangeStatus(from, to, total),
+      style: theme.footerTextStyle,
+    );
+
+    final pageSize = _buildPageSizeSelector(context, tState.pageSize);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.footerGradient != null
+            ? null
+            : theme.footerBackgroundColor,
+        gradient: theme.footerGradient,
+        border: Border(top: BorderSide(color: theme.dividerColor, width: 1.0)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < mobileBreakpoint;
+          final controls = _buildPaginationControls(
+            context,
+            currentPage,
+            totalPages,
+            compact: narrow,
+          );
+          // FittedBox: the controls shrink instead of overflowing on very
+          // small widths or with many pages.
+          if (narrow) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(child: status),
+                    pageSize,
+                  ],
+                ),
+                const SizedBox(height: 4),
+                FittedBox(fit: BoxFit.scaleDown, child: controls),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: status),
+              Flexible(
+                flex: 3,
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [pageSize, const SizedBox(width: 16), controls],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPageSizeSelector(BuildContext context, int current) {
+    // The current size must be one of the dropdown values, otherwise
+    // DropdownButton throws an assertion.
+    final sizes = {...pageSizes.where((s) => s > 0), current}.toList()..sort();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          labels.itemsPerPage,
+          style: theme.footerTextStyle.copyWith(fontSize: 11),
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          height: 30,
+          child: DropdownButton<int>(
+            value: current,
+            dropdownColor: theme.cardBackgroundColor.withValues(alpha: 1),
+            underline: const SizedBox.shrink(),
+            isDense: true,
+            style: theme.footerTextStyle.copyWith(fontWeight: FontWeight.bold),
+            icon: Icon(
+              Icons.arrow_drop_down,
+              size: 16,
+              color: theme.actionIconColor,
+            ),
+            onChanged: (val) {
+              if (val != null) context.read<TableCubit<T>>().setPageSize(val);
+            },
+            items: [
+              for (final size in sizes)
+                DropdownMenuItem<int>(value: size, child: Text('$size')),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildPaginationControls(
     BuildContext context,
     int currentPage,
-    int totalPages,
-    bool isRtl,
-  ) {
+    int totalPages, {
+    bool compact = false,
+  }) {
+    final cubit = context.read<TableCubit<T>>();
     final hasPrev = currentPage > 1;
     final hasNext = currentPage < totalPages;
 
-    // Flip icons dynamically based on directionality
-    final firstIcon = isRtl ? Icons.last_page : Icons.first_page;
-    final prevIcon = isRtl ? Icons.chevron_right : Icons.chevron_left;
-    final nextIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
-    final lastIcon = isRtl ? Icons.first_page : Icons.last_page;
-
-    final cubit = context.read<TableCubit<T>>();
-
+    // Icons are mirrored automatically in RTL by the Icon widget.
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // First Page
-        _IconButton(
-          icon: Icon(firstIcon, size: 18),
+        _NavButton(
+          icon: Icons.first_page,
+          tooltip: labels.firstPage,
           enabled: hasPrev,
           onPressed: () => cubit.setPage(1),
           theme: theme,
         ),
-
-        // Prev Page
-        _IconButton(
-          icon: Icon(prevIcon, size: 18),
+        _NavButton(
+          icon: Icons.chevron_left,
+          tooltip: labels.previousPage,
           enabled: hasPrev,
           onPressed: () => cubit.setPage(currentPage - 1),
           theme: theme,
         ),
-
-        // Page number circle
-        Container(
-          width: 26,
-          height: 26,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: Colors.blue.shade600,
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            '$currentPage',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-
-        // Next Page
-        _IconButton(
-          icon: Icon(nextIcon, size: 18),
+        for (final page in _visiblePages(
+          currentPage,
+          totalPages,
+          compact ? 1 : 5,
+        ))
+          page == null
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text('…', style: theme.footerTextStyle),
+                )
+              : _PageChip(
+                  page: page,
+                  selected: page == currentPage,
+                  onTap: () => cubit.setPage(page),
+                  theme: theme,
+                ),
+        _NavButton(
+          icon: Icons.chevron_right,
+          tooltip: labels.nextPage,
           enabled: hasNext,
           onPressed: () => cubit.setPage(currentPage + 1),
           theme: theme,
         ),
-
-        // Last Page
-        _IconButton(
-          icon: Icon(lastIcon, size: 18),
+        _NavButton(
+          icon: Icons.last_page,
+          tooltip: labels.lastPage,
           enabled: hasNext,
           onPressed: () => cubit.setPage(totalPages),
           theme: theme,
@@ -235,16 +239,80 @@ class TableFooter<T> extends StatelessWidget {
       ],
     );
   }
+
+  /// A sliding window of page numbers; `null` marks a gap ("…").
+  static List<int?> _visiblePages(int current, int total, int window) {
+    if (total <= window + 2) return [for (var i = 1; i <= total; i++) i];
+    final half = window ~/ 2;
+    var start = (current - half).clamp(2, total - window);
+    var end = start + window - 1;
+    if (end >= total) {
+      end = total - 1;
+      start = end - window + 1;
+    }
+    return [
+      1,
+      if (start > 2) null,
+      for (var i = start; i <= end; i++) i,
+      if (end < total - 1) null,
+      total,
+    ];
+  }
 }
 
-class _IconButton extends StatelessWidget {
-  final Widget icon;
+class _PageChip extends StatelessWidget {
+  final int page;
+  final bool selected;
+  final VoidCallback onTap;
+  final AdaptiveTableTheme theme;
+
+  const _PageChip({
+    required this.page,
+    required this.selected,
+    required this.onTap,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: selected ? theme.accentColor : Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: selected ? null : onTap,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: Center(
+              child: Text(
+                '$page',
+                style: theme.footerTextStyle.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: selected ? theme.onAccentColor : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
   final bool enabled;
   final VoidCallback onPressed;
   final AdaptiveTableTheme theme;
 
-  const _IconButton({
+  const _NavButton({
     required this.icon,
+    required this.tooltip,
     required this.enabled,
     required this.onPressed,
     required this.theme,
@@ -252,23 +320,16 @@ class _IconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = enabled
-        ? theme.actionIconColor
-        : theme.actionIconColor.withOpacity(0.3);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4.0),
-        onTap: enabled ? onPressed : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
-          child: IconTheme(
-            data: IconThemeData(color: color),
-            child: icon,
-          ),
-        ),
-      ),
+    return IconButton(
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      iconSize: 18,
+      color: theme.actionIconColor,
+      disabledColor: theme.actionIconColor.withValues(alpha: 0.3),
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(icon),
     );
   }
 }
