@@ -454,6 +454,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
             onDrag: (dx) {
               final rtl = Directionality.of(context) == TextDirection.rtl;
               setState(() {
+                if (!_dragWidths.containsKey(col.id)) _freezeColumnsBefore(col);
                 final current =
                     _dragWidths[col.id] ?? _lastWidths[col.id] ?? width;
                 _dragWidths[col.id] = math.max(
@@ -463,14 +464,26 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               });
             },
             onEnd: () {
-              final w = _dragWidths[col.id];
-              if (w != null) _cubit.setColumnWidth(col.id, w);
+              if (_dragWidths.isNotEmpty) {
+                _cubit.setColumnWidths(Map.of(_dragWidths));
+              }
             },
             onReset: () => _cubit.resetColumnWidths(col.id),
           ),
         ),
       ],
     );
+  }
+
+  /// Keeps the columns before [col] at their current width while it is
+  /// resized, so its edge follows the pointer. The flexible columns after it
+  /// absorb the change.
+  void _freezeColumnsBefore(AdaptiveTableColumn<T> col) {
+    for (final c in _cols) {
+      if (c.id == col.id) break;
+      final w = _lastWidths[c.id];
+      if (w != null) _dragWidths.putIfAbsent(c.id, () => w);
+    }
   }
 
   Widget _reorderable(AdaptiveTableColumn<T> col, Widget child, double width) {

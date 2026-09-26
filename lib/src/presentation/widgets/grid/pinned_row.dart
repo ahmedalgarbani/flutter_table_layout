@@ -274,7 +274,13 @@ class RenderPinnedRow extends RenderBox
     }
     height = math.max(height, constraints.minHeight);
     // Pass 2: every cell gets the row height so backgrounds line up.
-    var x = 0.0;
+    final content = _contentWidth;
+    size = constraints.constrain(Size(content, height));
+    // When the row is wider than its cells, RTL rows start at the right edge
+    // (like the header), so resizing moves the edge being dragged.
+    var x = _textDirection == TextDirection.rtl
+        ? math.max(0.0, size.width - content)
+        : 0.0;
     for (final c in _visualChildren) {
       final data = c.parentData! as _PinnedCellParentData;
       if (c.size.height != height) {
@@ -283,7 +289,6 @@ class RenderPinnedRow extends RenderBox
       data.offset = Offset(x, 0);
       x += data.width;
     }
-    size = constraints.constrain(Size(x, height));
   }
 
   void _updateShifts() {

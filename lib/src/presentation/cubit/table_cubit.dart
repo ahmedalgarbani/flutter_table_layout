@@ -400,6 +400,17 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     _emitCurrent();
   }
 
+  /// Sets several column widths at once (one state update).
+  void setColumnWidths(Map<String, double> widths) {
+    final next = {..._widths};
+    for (final e in widths.entries) {
+      final col = _columns.where((c) => c.id == e.key).firstOrNull;
+      next[e.key] = e.value < (col?.minWidth ?? 0) ? col!.minWidth : e.value;
+    }
+    _widths = Map.unmodifiable(next);
+    _emitCurrent();
+  }
+
   /// Restores the declared width of one column, or of all when [columnId]
   /// is `null`.
   void resetColumnWidths([String? columnId]) {
