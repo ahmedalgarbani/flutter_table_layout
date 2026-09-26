@@ -10,6 +10,8 @@ enum FieldType {
   dropdown,
   date,
   boolean,
+  multiSelect,
+  relationship,
 }
 
 /// Description schema of a form input element.
@@ -22,6 +24,20 @@ class DynamicFormField {
   final bool isRequired;
   final String? Function(dynamic)? validator;
 
+  /// Whether this field supports selecting multiple values.
+  final bool isMultiSelect;
+
+  /// Callback to trigger creating a new option/instance of this field type inline.
+  /// If provided, a '+' button will show next to the selector/dropdown.
+  /// It receives a callback to call when the new instance/option is successfully created.
+  final Future<String?> Function(BuildContext)? onAddInstance;
+
+  /// Custom lookup/search dialog handler for FieldType.relationship.
+  final Future<List<String>?> Function(BuildContext context, List<String> currentSelection)? onSearchRelationship;
+
+  /// Optional custom controller for text-based inputs.
+  final TextEditingController? controller;
+
   DynamicFormField({
     required this.id,
     required this.label,
@@ -30,6 +46,10 @@ class DynamicFormField {
     this.dropdownItems,
     this.isRequired = false,
     this.validator,
+    this.isMultiSelect = false,
+    this.onAddInstance,
+    this.onSearchRelationship,
+    this.controller,
   });
 
   /// Automatically generates field schemas by detecting column settings and titles.
@@ -103,27 +123,49 @@ class DynamicForm extends StatefulWidget {
 class _DynamicFormState extends State<DynamicForm> {
   final _formKey = GlobalKey<FormState>();
   final Map<String, dynamic> _formValues = {};
+  final Map<String, TextEditingController> _controllers = {};
+  final Map<String, List<String>> _fieldOptions = {};
 
   @override
   void initState() {
     super.initState();
     for (final field in widget.fields) {
-      _formValues[field.id] = field.initialValue ?? _getDefaultValue(field.type);
+      final initialVal = field.initialValue ?? _getDefaultValue(field.type);
+      _formValues[field.id] = initialVal;
+
+      if (field.dropdownItems != null) {
+        _fieldOptions[field.id] = List<String>.from(field.dropdownItems!);
+      } else {
+        _fieldOptions[field.id] = [];
+      }
+
+      if (field.type == FieldType.text || field.type == FieldType.number) {
+        _controllers[field.id] = field.controller ?? TextEditingController(text: initialVal?.toString() ?? '');
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    for (final field in widget.fields) {
+      if (field.controller == null && _controllers.containsKey(field.id)) {
+        _controllers[field.id]?.dispose();
+      }
+    }
+    super.dispose();
   }
 
   dynamic _getDefaultValue(FieldType type) {
     return switch (type) {
       FieldType.boolean => false,
       FieldType.date => DateTime.now(),
+      FieldType.multiSelect => <String>[],
       _ => null,
     };
   }
 
   @override
   Widget build(BuildContext context) {
-    // final isRtl = Directionality.of(context) == TextDirection.rtl;
-
     return Form(
       key: _formKey,
       child: Column(
@@ -173,13 +215,42 @@ class _DynamicFormState extends State<DynamicForm> {
       FieldType.date => _buildDateInput(field),
       FieldType.dropdown => _buildDropdownInput(field),
       FieldType.number => _buildNumberInput(field),
+      FieldType.multiSelect => _buildMultiSelectInput(field),
+      FieldType.relationship => _buildRelationshipInput(field),
       _ => _buildTextInput(field),
     };
   }
 
+  Widget _wrapWithAddButton(DynamicFormField field, Widget child, {required ValueChanged<String> onAdded}) {
+    if (field.onAddInstance == null) return child;
+    return Row(
+      children: [
+        Expanded(child: child),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: const Icon(Icons.add_circle, color: Colors.blue),
+          tooltip: 'Add new ${field.label}',
+          onPressed: () async {
+            final newValue = await field.onAddInstance!(context);
+            if (newValue != null && newValue.isNotEmpty) {
+              final items = _fieldOptions[field.id] ?? [];
+              if (!items.contains(newValue)) {
+                setState(() {
+                  items.add(newValue);
+                });
+              }
+              onAdded(newValue);
+            }
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _buildTextInput(DynamicFormField field) {
+    final controller = _controllers[field.id]!;
     return TextFormField(
-      initialValue: _formValues[field.id]?.toString(),
+      controller: controller,
       style: widget.theme.rowTextStyle,
       decoration: _getInputDecoration(field.label),
       validator: (val) {
@@ -196,8 +267,9 @@ class _DynamicFormState extends State<DynamicForm> {
   }
 
   Widget _buildNumberInput(DynamicFormField field) {
+    final controller = _controllers[field.id]!;
     return TextFormField(
-      initialValue: _formValues[field.id]?.toString(),
+      controller: controller,
       style: widget.theme.rowTextStyle,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: _getInputDecoration(field.label),
@@ -227,9 +299,11 @@ class _DynamicFormState extends State<DynamicForm> {
   }
 
   Widget _buildDropdownInput(DynamicFormField field) {
-    final items = field.dropdownItems ?? [];
-    return DropdownButtonFormField<String>(
-      value: _formValues[field.id]?.toString() ?? (items.isNotEmpty ? items.first : null),
+    final items = _fieldOptions[field.id] ?? [];
+    final child = DropdownButtonFormField<String>(
+      value: items.contains(_formValues[field.id]?.toString()) 
+          ? _formValues[field.id]?.toString() 
+          : null,
       style: widget.theme.rowTextStyle,
       decoration: _getInputDecoration(field.label),
       dropdownColor: widget.theme.cardBackgroundColor,
@@ -250,7 +324,240 @@ class _DynamicFormState extends State<DynamicForm> {
         }
         return null;
       },
+      onSaved: (val) => _formValues[field.id] = val,
     );
+
+    return _wrapWithAddButton(
+      field,
+      child,
+      onAdded: (newValue) {
+        setState(() {
+          _formValues[field.id] = newValue;
+        });
+      },
+    );
+  }
+
+  Widget _buildMultiSelectInput(DynamicFormField field) {
+    final items = _fieldOptions[field.id] ?? [];
+    return FormField<List<String>>(
+      initialValue: List<String>.from(_formValues[field.id] ?? []),
+      validator: (val) {
+        if (field.isRequired && (val == null || val.isEmpty)) {
+          return 'Selection required';
+        }
+        return null;
+      },
+      onSaved: (val) => _formValues[field.id] = val,
+      builder: (FormFieldState<List<String>> state) {
+        final currentValues = state.value ?? [];
+        final child = InkWell(
+          onTap: () async {
+            final result = await showDialog<List<String>>(
+              context: context,
+              builder: (context) => SearchSelectDialog(
+                title: field.label,
+                items: items,
+                initialSelected: currentValues,
+                isMultiSelect: true,
+                theme: widget.theme,
+                onAddInstance: field.onAddInstance,
+              ),
+            );
+            if (result != null) {
+              state.didChange(result);
+              for (final val in result) {
+                if (!items.contains(val)) {
+                  items.add(val);
+                }
+              }
+            }
+          },
+          child: InputDecorator(
+            decoration: _getInputDecoration(field.label).copyWith(
+              errorText: state.errorText,
+              suffixIcon: Icon(Icons.arrow_drop_down, color: widget.theme.actionIconColor),
+            ),
+            child: currentValues.isEmpty
+                ? Text(
+                    'Select ${field.label}...',
+                    style: widget.theme.rowTextStyle.copyWith(color: Colors.grey.shade500),
+                  )
+                : Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: currentValues.map((val) {
+                      return Chip(
+                        label: Text(val, style: widget.theme.rowTextStyle.copyWith(fontSize: 12)),
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onDeleted: () {
+                          final updated = List<String>.from(currentValues)..remove(val);
+                          state.didChange(updated);
+                        },
+                      );
+                    }).toList(),
+                  ),
+          ),
+        );
+        return _wrapWithAddButton(
+          field,
+          child,
+          onAdded: (newValue) {
+            final updated = List<String>.from(state.value ?? [])..add(newValue);
+            state.didChange(updated);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRelationshipInput(DynamicFormField field) {
+    final isMulti = field.isMultiSelect;
+    final items = _fieldOptions[field.id] ?? [];
+
+    if (isMulti) {
+      return FormField<List<String>>(
+        initialValue: List<String>.from(_formValues[field.id] ?? []),
+        validator: (val) {
+          if (field.isRequired && (val == null || val.isEmpty)) {
+            return 'Selection required';
+          }
+          return null;
+        },
+        onSaved: (val) => _formValues[field.id] = val,
+        builder: (FormFieldState<List<String>> state) {
+          final currentValues = state.value ?? [];
+          final child = InkWell(
+            onTap: () async {
+              List<String>? result;
+              if (field.onSearchRelationship != null) {
+                result = await field.onSearchRelationship!(context, currentValues);
+              } else {
+                result = await showDialog<List<String>>(
+                  context: context,
+                  builder: (context) => SearchSelectDialog(
+                    title: field.label,
+                    items: items,
+                    initialSelected: currentValues,
+                    isMultiSelect: true,
+                    theme: widget.theme,
+                    onAddInstance: field.onAddInstance,
+                  ),
+                );
+              }
+              if (result != null) {
+                state.didChange(result);
+                for (final val in result) {
+                  if (!items.contains(val)) {
+                    items.add(val);
+                  }
+                }
+              }
+            },
+            child: InputDecorator(
+              decoration: _getInputDecoration(field.label).copyWith(
+                errorText: state.errorText,
+                suffixIcon: Icon(Icons.search, size: 18, color: widget.theme.actionIconColor),
+              ),
+              child: currentValues.isEmpty
+                  ? Text(
+                      'Select ${field.label}...',
+                      style: widget.theme.rowTextStyle.copyWith(color: Colors.grey.shade500),
+                    )
+                  : Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: currentValues.map((val) {
+                        return Chip(
+                          label: Text(val, style: widget.theme.rowTextStyle.copyWith(fontSize: 12)),
+                          padding: EdgeInsets.zero,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          onDeleted: () {
+                            final updated = List<String>.from(currentValues)..remove(val);
+                            state.didChange(updated);
+                          },
+                        );
+                      }).toList(),
+                    ),
+            ),
+          );
+          return _wrapWithAddButton(
+            field,
+            child,
+            onAdded: (newValue) {
+              final updated = List<String>.from(state.value ?? [])..add(newValue);
+              state.didChange(updated);
+            },
+          );
+        },
+      );
+    } else {
+      return FormField<String>(
+        initialValue: _formValues[field.id]?.toString(),
+        validator: (val) {
+          if (field.isRequired && (val == null || val.isEmpty)) {
+            return 'Selection required';
+          }
+          return null;
+        },
+        onSaved: (val) => _formValues[field.id] = val,
+        builder: (FormFieldState<String> state) {
+          final currentValue = state.value;
+          final child = InkWell(
+            onTap: () async {
+              List<String>? result;
+              if (field.onSearchRelationship != null) {
+                result = await field.onSearchRelationship!(
+                  context,
+                  currentValue != null ? [currentValue] : [],
+                );
+              } else {
+                result = await showDialog<List<String>>(
+                  context: context,
+                  builder: (context) => SearchSelectDialog(
+                    title: field.label,
+                    items: items,
+                    initialSelected: currentValue != null ? [currentValue] : [],
+                    isMultiSelect: false,
+                    theme: widget.theme,
+                    onAddInstance: field.onAddInstance,
+                  ),
+                );
+              }
+              if (result != null && result.isNotEmpty) {
+                state.didChange(result.first);
+                if (!items.contains(result.first)) {
+                  items.add(result.first);
+                }
+              }
+            },
+            child: InputDecorator(
+              decoration: _getInputDecoration(field.label).copyWith(
+                errorText: state.errorText,
+                suffixIcon: Icon(Icons.search, size: 18, color: widget.theme.actionIconColor),
+              ),
+              child: currentValue == null || currentValue.isEmpty
+                  ? Text(
+                      'Select ${field.label}...',
+                      style: widget.theme.rowTextStyle.copyWith(color: Colors.grey.shade500),
+                    )
+                  : Text(
+                      currentValue,
+                      style: widget.theme.rowTextStyle,
+                    ),
+            ),
+          );
+          return _wrapWithAddButton(
+            field,
+            child,
+            onAdded: (newValue) {
+              state.didChange(newValue);
+            },
+          );
+        },
+      );
+    }
   }
 
   Widget _buildDateInput(DynamicFormField field) {
@@ -323,6 +630,199 @@ class _DynamicFormState extends State<DynamicForm> {
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8.0),
         borderSide: const BorderSide(color: Colors.red, width: 1.0),
+      ),
+    );
+  }
+}
+
+/// A search and select popup dialog for single and multiple selections.
+class SearchSelectDialog extends StatefulWidget {
+  final String title;
+  final List<String> items;
+  final List<String> initialSelected;
+  final bool isMultiSelect;
+  final AdaptiveTableTheme theme;
+  final Future<String?> Function(BuildContext)? onAddInstance;
+
+  const SearchSelectDialog({
+    super.key,
+    required this.title,
+    required this.items,
+    required this.initialSelected,
+    required this.isMultiSelect,
+    required this.theme,
+    this.onAddInstance,
+  });
+
+  @override
+  State<SearchSelectDialog> createState() => _SearchSelectDialogState();
+}
+
+class _SearchSelectDialogState extends State<SearchSelectDialog> {
+  final List<String> _localItems = [];
+  final Set<String> _selectedItems = {};
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _localItems.addAll(widget.items);
+    _selectedItems.addAll(widget.initialSelected);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<String> get _filteredItems {
+    if (_searchQuery.isEmpty) {
+      return _localItems;
+    }
+    return _localItems
+        .where((item) => item.toLowerCase().contains(_searchQuery.toLowerCase()))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filteredItems;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: widget.theme.borderRadius),
+      backgroundColor: widget.theme.cardBackgroundColor,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.title,
+                style: widget.theme.headerTextStyle.copyWith(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: widget.theme.rowTextStyle,
+                      decoration: InputDecoration(
+                        hintText: 'Search...',
+                        hintStyle: widget.theme.footerTextStyle.copyWith(fontSize: 13),
+                        prefixIcon: Icon(Icons.search, size: 18, color: widget.theme.actionIconColor),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onChanged: (val) {
+                        setState(() {
+                          _searchQuery = val;
+                        });
+                      },
+                    ),
+                  ),
+                  if (widget.onAddInstance != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.blue),
+                      onPressed: () async {
+                        final newItem = await widget.onAddInstance!(context);
+                        if (newItem != null && newItem.isNotEmpty) {
+                          setState(() {
+                            if (!_localItems.contains(newItem)) {
+                              _localItems.add(newItem);
+                            }
+                            if (widget.isMultiSelect) {
+                              _selectedItems.add(newItem);
+                            } else {
+                              _selectedItems.clear();
+                              _selectedItems.add(newItem);
+                              Navigator.of(context).pop(_selectedItems.toList());
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: filtered.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No items found',
+                          style: widget.theme.rowTextStyle.copyWith(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          final isSelected = _selectedItems.contains(item);
+                          if (widget.isMultiSelect) {
+                            return CheckboxListTile(
+                              title: Text(item, style: widget.theme.rowTextStyle),
+                              value: isSelected,
+                              activeColor: Colors.blue.shade600,
+                              onChanged: (val) {
+                                setState(() {
+                                  if (val == true) {
+                                    _selectedItems.add(item);
+                                  } else {
+                                    _selectedItems.remove(item);
+                                  }
+                                });
+                              },
+                            );
+                          } else {
+                            return RadioListTile<String>(
+                              title: Text(item, style: widget.theme.rowTextStyle),
+                              value: item,
+                              groupValue: isSelected ? item : null,
+                              activeColor: Colors.blue.shade600,
+                              onChanged: (val) {
+                                if (val != null) {
+                                  Navigator.of(context).pop([val]);
+                                }
+                              },
+                            );
+                          }
+                        },
+                      ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  ),
+                  if (widget.isMultiSelect) ...[
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade600,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).pop(_selectedItems.toList());
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

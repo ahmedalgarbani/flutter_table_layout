@@ -190,9 +190,15 @@ class TableContent<T> extends StatelessWidget {
                   mainAxisAlignment: _getAlignment(col.alignment),
                   children: [
                     if (col.headerBuilder != null)
-                      col.headerBuilder!(context)
+                      Flexible(child: col.headerBuilder!(context))
                     else
-                      Text(col.title, style: theme.headerTextStyle),
+                      Flexible(
+                        child: Text(
+                          col.title,
+                          style: theme.headerTextStyle,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     if (col.isSortable) ...[
                       const SizedBox(width: 4),
                       AnimatedOpacity(
@@ -300,9 +306,15 @@ class TableContent<T> extends StatelessWidget {
                     );
 
                     if (col.width != null) {
-                      return SizedBox(width: col.width, child: cellChild);
+                      return SizedBox(
+                        width: col.width,
+                        child: ClipRect(child: cellChild),
+                      );
                     }
-                    return Expanded(flex: col.flex, child: cellChild);
+                    return Expanded(
+                      flex: col.flex,
+                      child: ClipRect(child: cellChild),
+                    );
                   }),
                 ],
               ),

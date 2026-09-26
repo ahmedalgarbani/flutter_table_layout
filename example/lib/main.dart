@@ -538,11 +538,161 @@ class _DashboardHomeState extends State<DashboardHome> with SingleTickerProvider
     AdaptiveTableTheme theme,
   ) {
     // Generate dynamic form schema
-    final fields = DynamicFormField.detectFromColumns(
+    final initialFields = DynamicFormField.detectFromColumns(
       columns,
       dropdownItems: {
-        'currency': ['YER', 'SAR', 'USD'],
+        'currency': _currencies.map((c) => c.code).toList(),
       },
+    );
+
+    final fields = initialFields.map((field) {
+      if (field.id == 'currency') {
+        return DynamicFormField(
+          id: field.id,
+          label: field.label,
+          type: field.type,
+          initialValue: field.initialValue,
+          dropdownItems: field.dropdownItems,
+          isRequired: field.isRequired,
+          validator: field.validator,
+          onAddInstance: (ctx) async {
+            String? newCurrencyCode;
+            await showDialog(
+              context: ctx,
+              builder: (dialogCtx) {
+                final currencyFields = [
+                  DynamicFormField(
+                    id: 'name', 
+                    label: isRtl ? 'اسم العملة' : 'Currency Name', 
+                    type: FieldType.text, 
+                    isRequired: true,
+                  ),
+                  DynamicFormField(
+                    id: 'code', 
+                    label: isRtl ? 'رمز العملة' : 'Symbol', 
+                    type: FieldType.text, 
+                    isRequired: true,
+                  ),
+                  DynamicFormField(
+                    id: 'symbol', 
+                    label: isRtl ? 'اختصار العملة' : 'Abbr.', 
+                    type: FieldType.text, 
+                    isRequired: true,
+                  ),
+                  DynamicFormField(
+                    id: 'subunit', 
+                    label: isRtl ? 'فكة العملة' : 'Subunit', 
+                    type: FieldType.dropdown, 
+                    dropdownItems: isRtl ? ['فلوس', 'هللة', 'سنت'] : ['Fils', 'Halala', 'Cent'], 
+                    isRequired: true,
+                  ),
+                  DynamicFormField(
+                    id: 'rate', 
+                    label: isRtl ? 'سعر الصرف' : 'Rate', 
+                    type: FieldType.number, 
+                    isRequired: true, 
+                    initialValue: 1.0,
+                  ),
+                  DynamicFormField(
+                    id: 'minRate', 
+                    label: isRtl ? 'اقل سعر' : 'Min Rate', 
+                    type: FieldType.number, 
+                    isRequired: true, 
+                    initialValue: 1.0,
+                  ),
+                  DynamicFormField(
+                    id: 'maxRate', 
+                    label: isRtl ? 'اعلى سعر' : 'Max Rate', 
+                    type: FieldType.number, 
+                    isRequired: true, 
+                    initialValue: 1.0,
+                  ),
+                  DynamicFormField(
+                    id: 'status', 
+                    label: isRtl ? 'الحالة' : 'Status', 
+                    type: FieldType.boolean, 
+                    initialValue: true,
+                  ),
+                ];
+
+                return DynamicFormDialog(
+                  title: isRtl ? 'إضافة عملة جديدة' : 'Add New Currency',
+                  fields: currencyFields,
+                  theme: theme,
+                  submitLabel: isRtl ? 'إرسال' : 'Send',
+                  cancelLabel: isRtl ? 'إلغاء' : 'Cancel',
+                  onSubmitted: (values) {
+                    newCurrencyCode = values['code']?.toString();
+                    final nextId = _currencies.map((c) => c.id).fold(0, (max, id) => id > max ? id : max) + 1;
+                    setState(() {
+                      _currencies.add(
+                        Currency(
+                          id: nextId,
+                          name: values['name']?.toString() ?? 'New Currency',
+                          code: newCurrencyCode ?? 'NEW',
+                          symbol: values['symbol']?.toString() ?? 'N',
+                          subunit: values['subunit']?.toString() ?? 'cent',
+                          rate: (values['rate'] as num?)?.toDouble() ?? 1.0,
+                          minRate: (values['minRate'] as num?)?.toDouble() ?? 1.0,
+                          maxRate: (values['maxRate'] as num?)?.toDouble() ?? 1.0,
+                          isActive: values['status'] == true,
+                        ),
+                      );
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(isRtl ? 'تم إضافة العملة بنجاح!' : 'Currency added successfully!')),
+                    );
+                  },
+                );
+              },
+            );
+            return newCurrencyCode;
+          },
+        );
+      }
+      return field;
+    }).toList();
+
+    fields.add(
+      DynamicFormField(
+        id: 'relatedProfiles',
+        label: isRtl ? 'الحسابات المرتبطة' : 'Related Profiles',
+        type: FieldType.relationship,
+        isMultiSelect: true,
+        dropdownItems: isRtl ? ['أحمد', 'محمد', 'علي', 'صالح'] : ['Ahmed', 'Mohamed', 'Ali', 'Saleh'],
+        onAddInstance: (ctx) async {
+          String? newProfile;
+          await showDialog(
+            context: ctx,
+            builder: (dialogCtx) {
+              final textController = TextEditingController();
+              return AlertDialog(
+                title: Text(isRtl ? 'إضافة حساب جديد' : 'Add New Profile'),
+                content: TextField(
+                  controller: textController,
+                  decoration: InputDecoration(
+                    labelText: isRtl ? 'الاسم' : 'Name',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    child: Text(isRtl ? 'إلغاء' : 'Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      newProfile = textController.text.trim();
+                      Navigator.pop(dialogCtx);
+                    },
+                    child: Text(isRtl ? 'إضافة' : 'Add'),
+                  ),
+                ],
+              );
+            },
+          );
+          return newProfile;
+        },
+      ),
     );
 
     DynamicFormDialog.show(

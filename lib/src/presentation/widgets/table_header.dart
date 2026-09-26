@@ -53,7 +53,9 @@ class TableHeader<T> extends StatelessWidget {
 
         return Container(
           decoration: BoxDecoration(
-            color: theme.headerGradient != null ? null : (theme.toolbarBackgroundColor ?? theme.cardBackgroundColor),
+            color: theme.headerGradient != null
+                ? null
+                : (theme.toolbarBackgroundColor ?? theme.cardBackgroundColor),
             gradient: theme.headerGradient,
             border: Border(
               bottom: BorderSide(color: theme.dividerColor, width: 1.0),
@@ -187,6 +189,8 @@ class TableHeader<T> extends StatelessWidget {
     TableLoaded<T> state,
     bool isRtl,
   ) {
+    final tableCubit = context.read<TableCubit<T>>();
+
     return PopupMenuButton<String>(
       tooltip: isRtl ? 'الأعمدة' : 'Columns',
       icon: Icon(
@@ -196,13 +200,13 @@ class TableHeader<T> extends StatelessWidget {
       ),
       offset: const Offset(0, 40),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      itemBuilder: (context) {
+      itemBuilder: (popupContext) {
         return columns.map<PopupMenuEntry<String>>((col) {
           final isHidden = state.hiddenColumnIds.contains(col.id);
           return PopupMenuItem<String>(
             value: col.id,
             child: StatefulBuilder(
-              builder: (context, setState) {
+              builder: (itemContext, setState) {
                 return CheckboxListTile(
                   title: Text(
                     col.title,
@@ -213,9 +217,7 @@ class TableHeader<T> extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   onChanged: (val) {
-                    context.read<TableCubit<T>>().toggleColumnVisibility(
-                      col.id,
-                    );
+                    tableCubit.toggleColumnVisibility(col.id);
                     setState(() {});
                   },
                 );
