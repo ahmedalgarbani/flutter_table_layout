@@ -1,4 +1,16 @@
 # Changelog
+
+## Unreleased
+
+### Fixes
+* **Column resize in RTL felt inverted:** grid rows were anchored to the left in right-to-left layouts, so widening a column moved the opposite edge. Rows now start at the right in RTL.
+* **Resize edge didn't follow the pointer:** flexible columns *before* the resized one absorbed the change. They are now frozen during the drag; only the columns after it adapt. Covered by 8 tests (LTR/RTL × fixed/flex × grow/shrink).
+
+### Date filter redesign (new)
+* The two From / To buttons (each opening the same full calendar) are replaced by a single **"Period" button**. It opens a panel with quick periods (all, today, yesterday, last 7 / 30 days, this / last month, this year), a two-month range calendar and typed From / To fields. On phones it opens as a bottom sheet.
+* `datePresets` / `DateRangePreset` for custom periods, `showTableDateRangePicker` / `DateRangePanel` for standalone use.
+* `dateFilterStyle: DateFilterStyle.separateFields` keeps the previous look.
+
 ## 0.1.1
 
 - Fixes and improvements.
@@ -36,15 +48,6 @@ keeps compiling, and the original tests pass unchanged.
   * the internal mutable map was leaked to callers.
 * Removed dead placeholder code in `FilterItemsUseCase.execute`, which now works and sorts.
 * Fixed every analyzer deprecation (`withOpacity`, `dart:html`, `Share.shareXFiles`, `DropdownButtonFormField.value`, `Switch.activeColor`).
-
-### Fixes
-* **Column resize in RTL felt inverted:** grid rows were anchored to the left in right-to-left layouts, so widening a column moved the opposite edge. Rows now start at the right in RTL.
-* **Resize edge didn't follow the pointer:** flexible columns *before* the resized one absorbed the change. They are now frozen during the drag; only the columns after it adapt. Covered by 8 tests (LTR/RTL × fixed/flex × grow/shrink).
-
-### Date filter redesign (new)
-* The two From / To buttons (each opening the same full calendar) are replaced by a single **"Period" button**. It opens a panel with quick periods (all, today, yesterday, last 7 / 30 days, this / last month, this year), a two-month range calendar and typed From / To fields. On phones it opens as a bottom sheet.
-* `datePresets` / `DateRangePreset` for custom periods, `showTableDateRangePicker` / `DateRangePanel` for standalone use.
-* `dateFilterStyle: DateFilterStyle.separateFields` keeps the previous look.
 
 ### Advanced grid (new)
 * **Frozen columns:** `pin: ColumnPin.start / end`, pin/unpin from the columns menu, LTR and RTL. Implemented with a custom `RenderPinnedRow`.
