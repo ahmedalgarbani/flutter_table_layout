@@ -47,6 +47,21 @@ class AdaptiveTableLabels {
   final String retry;
   final String groupBy;
   final String noGrouping;
+  final String period;
+  final String allDates;
+  final String today;
+  final String yesterday;
+  final String last7Days;
+  final String last30Days;
+  final String thisMonth;
+  final String lastMonth;
+  final String thisYear;
+  final String customRange;
+  final String apply;
+  final String clear;
+  final String previousMonth;
+  final String nextMonth;
+  final String invalidDate;
 
   /// `"Page 2 of 5 (48 items)"`.
   final String Function(int page, int totalPages, int totalItems) pageStatus;
@@ -105,6 +120,21 @@ class AdaptiveTableLabels {
     this.retry = 'Retry',
     this.groupBy = 'Group by',
     this.noGrouping = 'No grouping',
+    this.period = 'Period',
+    this.allDates = 'All dates',
+    this.today = 'Today',
+    this.yesterday = 'Yesterday',
+    this.last7Days = 'Last 7 days',
+    this.last30Days = 'Last 30 days',
+    this.thisMonth = 'This month',
+    this.lastMonth = 'Last month',
+    this.thisYear = 'This year',
+    this.customRange = 'Custom range',
+    this.apply = 'Apply',
+    this.clear = 'Clear',
+    this.previousMonth = 'Previous month',
+    this.nextMonth = 'Next month',
+    this.invalidDate = 'Use yyyy-mm-dd',
     required this.pageStatus,
     required this.rangeStatus,
     required this.selectedCount,
@@ -155,6 +185,21 @@ class AdaptiveTableLabels {
     retry: 'Retry',
     groupBy: 'Group by',
     noGrouping: 'No grouping',
+    period: 'Period',
+    allDates: 'All dates',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    last7Days: 'Last 7 days',
+    last30Days: 'Last 30 days',
+    thisMonth: 'This month',
+    lastMonth: 'Last month',
+    thisYear: 'This year',
+    customRange: 'Custom range',
+    apply: 'Apply',
+    clear: 'Clear',
+    previousMonth: 'Previous month',
+    nextMonth: 'Next month',
+    invalidDate: 'Use yyyy-mm-dd',
     pageStatus: _enPageStatus,
     rangeStatus: _enRangeStatus,
     selectedCount: _enSelectedCount,
@@ -204,6 +249,21 @@ class AdaptiveTableLabels {
     retry: 'إعادة المحاولة',
     groupBy: 'تجميع حسب',
     noGrouping: 'بدون تجميع',
+    period: 'الفترة',
+    allDates: 'كل التواريخ',
+    today: 'اليوم',
+    yesterday: 'أمس',
+    last7Days: 'آخر 7 أيام',
+    last30Days: 'آخر 30 يوماً',
+    thisMonth: 'هذا الشهر',
+    lastMonth: 'الشهر الماضي',
+    thisYear: 'هذه السنة',
+    customRange: 'فترة مخصصة',
+    apply: 'تطبيق',
+    clear: 'مسح',
+    previousMonth: 'الشهر السابق',
+    nextMonth: 'الشهر التالي',
+    invalidDate: 'اكتب التاريخ بصيغة yyyy-mm-dd',
     pageStatus: _arPageStatus,
     rangeStatus: _arRangeStatus,
     selectedCount: _arSelectedCount,
@@ -264,6 +324,21 @@ class AdaptiveTableLabels {
     String? retry,
     String? groupBy,
     String? noGrouping,
+    String? period,
+    String? allDates,
+    String? today,
+    String? yesterday,
+    String? last7Days,
+    String? last30Days,
+    String? thisMonth,
+    String? lastMonth,
+    String? thisYear,
+    String? customRange,
+    String? apply,
+    String? clear,
+    String? previousMonth,
+    String? nextMonth,
+    String? invalidDate,
     String Function(int page, int totalPages, int totalItems)? pageStatus,
     String Function(int from, int to, int total)? rangeStatus,
     String Function(int count)? selectedCount,
@@ -311,6 +386,21 @@ class AdaptiveTableLabels {
       retry: retry ?? this.retry,
       groupBy: groupBy ?? this.groupBy,
       noGrouping: noGrouping ?? this.noGrouping,
+      period: period ?? this.period,
+      allDates: allDates ?? this.allDates,
+      today: today ?? this.today,
+      yesterday: yesterday ?? this.yesterday,
+      last7Days: last7Days ?? this.last7Days,
+      last30Days: last30Days ?? this.last30Days,
+      thisMonth: thisMonth ?? this.thisMonth,
+      lastMonth: lastMonth ?? this.lastMonth,
+      thisYear: thisYear ?? this.thisYear,
+      customRange: customRange ?? this.customRange,
+      apply: apply ?? this.apply,
+      clear: clear ?? this.clear,
+      previousMonth: previousMonth ?? this.previousMonth,
+      nextMonth: nextMonth ?? this.nextMonth,
+      invalidDate: invalidDate ?? this.invalidDate,
       pageStatus: pageStatus ?? this.pageStatus,
       rangeStatus: rangeStatus ?? this.rangeStatus,
       selectedCount: selectedCount ?? this.selectedCount,

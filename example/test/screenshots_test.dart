@@ -257,4 +257,33 @@ void main() {
       },
     );
   });
+
+  testWidgets('date range panel desktop', skip: !_enabled, (t) async {
+    await _shoot(
+      t,
+      'date_range_desktop',
+      size: const Size(1280, 860),
+      locale: const Locale('ar', 'YE'),
+      interact: (t) async {
+        await t.tap(find.byIcon(Icons.date_range_rounded));
+        await t.pumpAndSettle();
+        await t.tap(find.text('آخر 30 يوماً'));
+      },
+    );
+  });
+
+  testWidgets('date range panel mobile', skip: !_enabled, (t) async {
+    await _shoot(
+      t,
+      'date_range_mobile',
+      size: const Size(390, 844),
+      pixelRatio: 2,
+      locale: const Locale('ar', 'YE'),
+      interact: (t) async {
+        await t.tap(find.byIcon(Icons.date_range_rounded));
+        await t.pumpAndSettle();
+        await t.tap(find.text('آخر 7 أيام'));
+      },
+    );
+  });
 }

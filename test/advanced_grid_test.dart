@@ -513,4 +513,74 @@ void main() {
       });
     }
   }
+
+  // Regression: in RTL the dragged edge used to stay still (or the wrong side
+  // moved) because rows were anchored to the left and flex columns before
+  // the resized one absorbed the change.
+  for (final direction in TextDirection.values) {
+    for (final flex in [false, true]) {
+      for (final grow in [true, false]) {
+        testWidgets('resize edge follows the pointer '
+            '($direction, flex: $flex, ${grow ? 'grow' : 'shrink'})', (
+          tester,
+        ) async {
+          final controller = AdaptiveTableController<int>();
+          await pump(
+            tester,
+            AdaptiveTableLayout<int>(
+              items: const [1, 2],
+              controller: controller,
+              showSelection: false,
+              columns: [
+                AdaptiveTableColumn(
+                  id: 'a',
+                  title: 'AAA',
+                  width: flex ? null : 150,
+                ),
+                AdaptiveTableColumn(
+                  id: 'b',
+                  title: 'BBB',
+                  width: flex ? null : 200,
+                ),
+                AdaptiveTableColumn(
+                  id: 'c',
+                  title: 'CCC',
+                  width: flex ? null : 150,
+                ),
+              ],
+              valueProviders: {'a': (i) => i, 'b': (i) => i, 'c': (i) => i},
+            ),
+            direction: direction,
+          );
+          final handle = find
+              .byWidgetPredicate(
+                (w) =>
+                    w is MouseRegion &&
+                    w.cursor == SystemMouseCursors.resizeColumn,
+              )
+              .at(1);
+          final aBefore = tester.getCenter(find.text('AAA')).dx;
+          final edgeBefore = tester.getCenter(handle).dx;
+          final outward = direction == TextDirection.ltr ? 1.0 : -1.0;
+          final dx = (grow ? 80.0 : -80.0) * outward;
+          await tester.drag(handle, Offset(dx, 0));
+          await tester.pumpAndSettle();
+
+          final width = controller.value!.columnWidths['b']!;
+          final edgeMoved = tester.getCenter(handle).dx - edgeBefore;
+          // The edge moves in the pointer's direction…
+          expect(edgeMoved.sign, dx.sign);
+          expect(edgeMoved.abs(), greaterThan(40));
+          // …and the column grows / shrinks by exactly that amount.
+          final original = flex ? null : 200.0;
+          if (original != null) {
+            expect(width - original, closeTo(edgeMoved * outward, 0.5));
+          }
+          expect(grow ? width > 150 : width < 400, isTrue);
+          // The column before it keeps its place.
+          expect(tester.getCenter(find.text('AAA')).dx, closeTo(aBefore, 0.5));
+        });
+      }
+    }
+  }
 }

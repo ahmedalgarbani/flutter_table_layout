@@ -9,6 +9,8 @@ import '../../core/labels.dart';
 import '../../core/theme.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
+import 'date_range/date_range_panel.dart';
+import 'date_range/date_range_preset.dart';
 
 /// The toolbar widget that holds inputs for searching, date ranges,
 /// query submissions, and custom search filters.
@@ -21,6 +23,8 @@ class TableFilterBar<T> extends StatefulWidget {
   final Duration searchDebounce;
   final DateTime? firstDate;
   final DateTime? lastDate;
+  final DateFilterStyle dateFilterStyle;
+  final List<DateRangePreset> datePresets;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -34,6 +38,8 @@ class TableFilterBar<T> extends StatefulWidget {
     this.searchDebounce = const Duration(milliseconds: 250),
     this.firstDate,
     this.lastDate,
+    this.dateFilterStyle = DateFilterStyle.rangePicker,
+    this.datePresets = DateRangePreset.defaults,
     required this.theme,
     this.labels = AdaptiveTableLabels.en,
   });
@@ -146,7 +152,28 @@ class _TableFilterBarState<T> extends State<TableFilterBar<T>> {
                 children: [
                   if (widget.showSearch)
                     _buildSearchField(math.min(280, constraints.maxWidth)),
-                  if (widget.showDateFilter) ...[
+                  if (widget.showDateFilter &&
+                      widget.dateFilterStyle == DateFilterStyle.rangePicker)
+                    _DateRangeButton(
+                      start: _startDate,
+                      end: _endDate,
+                      presets: widget.datePresets,
+                      firstDate: widget.firstDate,
+                      lastDate: widget.lastDate,
+                      theme: widget.theme,
+                      labels: widget.labels,
+                      maxWidth: constraints.maxWidth,
+                      onChanged: (s, e) {
+                        setState(() {
+                          _startDate = s;
+                          _endDate = e;
+                        });
+                        if (widget.onQueryPressed == null) _applyDates();
+                      },
+                    ),
+                  if (widget.showDateFilter &&
+                      widget.dateFilterStyle ==
+                          DateFilterStyle.separateFields) ...[
                     _buildDatePicker(
                       label: widget.labels.dateFrom,
                       selectedDate: _startDate,
@@ -349,6 +376,149 @@ class _TableFilterBarState<T> extends State<TableFilterBar<T>> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The "Period: This month ▾" button that opens the date range panel.
+class _DateRangeButton extends StatelessWidget {
+  final DateTime? start;
+  final DateTime? end;
+  final List<DateRangePreset> presets;
+  final DateTime? firstDate;
+  final DateTime? lastDate;
+  final AdaptiveTableTheme theme;
+  final AdaptiveTableLabels labels;
+  final double maxWidth;
+  final void Function(DateTime? start, DateTime? end) onChanged;
+
+  const _DateRangeButton({
+    required this.start,
+    required this.end,
+    required this.presets,
+    required this.firstDate,
+    required this.lastDate,
+    required this.theme,
+    required this.labels,
+    required this.maxWidth,
+    required this.onChanged,
+  });
+
+  String _valueText(BuildContext context) {
+    if (start == null && end == null) return labels.allDates;
+    final now = DateTime.now();
+    for (final p in presets) {
+      if (p.id != DateRangePreset.all.id && p.matches(start, end, now)) {
+        return p.label(labels);
+      }
+    }
+    final loc = MaterialLocalizations.of(context);
+    String fmt(DateTime d) {
+      final md = loc.formatShortMonthDay(d);
+      return d.year == now.year ? md : '$md ${loc.formatYear(d)}';
+    }
+
+    final s = start ?? end!;
+    final e = end ?? start!;
+    return s == e ? fmt(s) : '${fmt(s)} – ${fmt(e)}';
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final anchor = box == null || !box.hasSize
+        ? null
+        : box.localToGlobal(Offset.zero) & box.size;
+    final result = await showTableDateRangePicker(
+      context: context,
+      start: start,
+      end: end,
+      theme: theme,
+      labels: labels,
+      presets: presets,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      anchor: anchor,
+    );
+    if (result != null) onChanged(result.start, result.end);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = start != null || end != null;
+    final accent = theme.accentColor;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Tooltip(
+        message: labels.period,
+        child: Material(
+          color: active ? accent.withValues(alpha: 0.08) : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: active ? accent : theme.dividerColor,
+              width: active ? 1.2 : 1,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _open(context),
+            child: SizedBox(
+              height: 40,
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.date_range_rounded, size: 18, color: accent),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${labels.period}: ',
+                      style: theme.footerTextStyle.copyWith(fontSize: 12),
+                    ),
+                    Flexible(
+                      child: Text(
+                        _valueText(context),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.rowTextStyle.copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: active ? accent : null,
+                        ),
+                      ),
+                    ),
+                    if (active)
+                      IconButton(
+                        tooltip: labels.clear,
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 16,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        color: theme.actionIconColor,
+                        onPressed: () => onChanged(null, null),
+                        icon: const Icon(Icons.close_rounded),
+                      )
+                    else
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(
+                          start: 4,
+                          end: 6,
+                        ),
+                        child: Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: theme.actionIconColor,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

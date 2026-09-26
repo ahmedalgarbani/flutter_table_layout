@@ -14,6 +14,7 @@ import '../../domain/models/table_state_model.dart';
 import '../controller/adaptive_table_controller.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
+import 'date_range/date_range_preset.dart';
 import 'grid/cell_editor.dart';
 import 'grid/table_entries.dart';
 import 'table_content.dart';
@@ -348,6 +349,14 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Delay before a search keystroke is applied.
   final Duration searchDebounce;
 
+  /// Date filter look: one "Period" button with presets and a range calendar
+  /// (default) or the legacy separate From / To buttons.
+  final DateFilterStyle dateFilterStyle;
+
+  /// Quick periods of the date panel. `null` = [DateRangePreset.defaults],
+  /// empty = no presets (calendar and typed fields only).
+  final List<DateRangePreset>? datePresets;
+
   /// Earliest date selectable in the date filter.
   final DateTime? firstDate;
 
@@ -430,6 +439,8 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.searchDebounce = const Duration(milliseconds: 250),
     this.firstDate,
     this.lastDate,
+    this.dateFilterStyle = DateFilterStyle.rangePicker,
+    this.datePresets,
     this.exportOptions = const TableExportOptions(),
     this.isLoading = false,
     this.emptyWidget,
@@ -630,6 +641,8 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           searchDebounce: widget.searchDebounce,
           firstDate: widget.firstDate,
           lastDate: widget.lastDate,
+          dateFilterStyle: widget.dateFilterStyle,
+          datePresets: widget.datePresets ?? DateRangePreset.defaults,
           theme: theme,
           labels: labels,
         ),
