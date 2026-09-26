@@ -884,6 +884,22 @@ flutter test test/screenshots_test.dart --update-goldens \
 
 ---
 
+## Releasing (maintainers)
+
+New versions are published to pub.dev automatically by `.github/workflows/publish.yml` when a version tag is pushed:
+
+1. Bump `version:` in `pubspec.yaml` (e.g. `0.1.2`) and add the entry to `CHANGELOG.md`.
+2. Merge to `main`.
+3. Tag and push:
+   ```bash
+   git tag v0.1.2
+   git push origin v0.1.2
+   ```
+
+The workflow checks that the tag matches `pubspec.yaml`, runs analyze and tests, then publishes with GitHub OIDC (no token needed). pub.dev must have "Publishing from GitHub Actions" enabled for this repository with the tag pattern `v{{version}}`.
+
+---
+
 ## بالعربية
 
 **flutter_table_layout** مكتبة جداول ذكية لـ Flutter. تعرض البيانات كجدول كامل على الكمبيوتر والويب، وتحوّلها تلقائياً إلى بطاقات قابلة للتوسيع على الجوال. تدعم العربية واتجاه RTL بالكامل.

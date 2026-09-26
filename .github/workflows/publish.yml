@@ -1,0 +1,53 @@
+# Publishes the package to pub.dev when a version tag is pushed.
+#
+# Release steps:
+#   1. Update `version:` in pubspec.yaml and add a CHANGELOG.md entry.
+#   2. Merge to main.
+#   3. git tag v1.2.3 && git push origin v1.2.3
+#
+# Authentication uses GitHub OIDC (no secrets). It requires "Publishing from
+# GitHub Actions" to be enabled on pub.dev for this repository with the tag
+# pattern `v{{version}}`.
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Required to authenticate with pub.dev (OIDC).
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Configures the pub.dev OIDC credentials used by `pub publish`.
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Check that the tag matches pubspec.yaml
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(grep -E '^version:' pubspec.yaml | awk '{print $2}')"
+          echo "Tag: $TAG, pubspec.yaml: $VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tag v$TAG does not match pubspec.yaml version $VERSION"
+            exit 1
+          fi
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Dry run
+        run: flutter pub publish --dry-run
+
+      - name: Publish
+        run: flutter pub publish --force
