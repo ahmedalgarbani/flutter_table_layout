@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
+
+### Release automation
+* Versions are now published to pub.dev automatically from GitHub Actions when a `v{{version}}` tag is pushed.
 
 ### Fixes
 * **Column resize in RTL felt inverted:** grid rows were anchored to the left in right-to-left layouts, so widening a column moved the opposite edge. Rows now start at the right in RTL.
