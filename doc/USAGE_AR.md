@@ -44,6 +44,40 @@ AdaptiveTableLayout<Employee>(
 - **الجوال** (أقل من 600px): بطاقات تلقائياً.
 - **النصوص:** تظهر بالعربية تلقائياً إذا كانت لغة التطبيق `ar`.
 
+### فلتر التاريخ (زر "الفترة")
+عند تمرير `dateProvider` يظهر زر واحد: "📅 الفترة: هذا الشهر ▾"، وبجانبه ✕ للمسح. عند الضغط عليه:
+- **الكمبيوتر والويب:** نافذة صغيرة تحت الزر، فيها قائمة فترات جاهزة، وتقويم لشهرين، وخانتا "من" و"إلى" للكتابة بصيغة yyyy-mm-dd.
+- **الجوال:** نفس المحتوى في نافذة من الأسفل، والفترات الجاهزة فيها أزرار أفقية.
+
+طريقة الاختيار:
+- اضغط يوم البداية ثم يوم النهاية، فتتلوّن الأيام بينهما.
+- **تطبيق** يفلتر الصفوف، أو ينتظر زر "استعلام" إذا مرّرت `onQueryPressed`.
+- **مسح** يلغي الفلتر.
+
+```dart
+AdaptiveTableLayout<Employee>(
+  dateProvider: (e) => e.hiredOn,
+  datePresets: [                        // اختياري: اختر الفترات أو أضف فترات خاصة
+    DateRangePreset.all,
+    DateRangePreset.thisMonth,
+    DateRangePreset.lastMonth,
+    DateRangePreset(
+      id: 'quarter',
+      label: (l) => 'هذا الربع',
+      range: (now) {
+        final q = (now.month - 1) ~/ 3;
+        return DateTimeRange(
+          start: DateTime(now.year, q * 3 + 1),
+          end: DateTime(now.year, q * 3 + 4, 0),
+        );
+      },
+    ),
+  ],
+  // الشكل القديم (زرّا من/إلى) ما زال متوفراً:
+  // dateFilterStyle: DateFilterStyle.separateFields,
+)
+```
+
 ---
 
 ## ٢. الشبكة المتقدمة

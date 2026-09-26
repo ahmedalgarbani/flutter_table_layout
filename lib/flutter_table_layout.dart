@@ -39,6 +39,8 @@ export 'src/presentation/controller/adaptive_table_controller.dart';
 export 'src/presentation/cubit/table_cubit.dart';
 export 'src/presentation/cubit/table_cubit_state.dart';
 export 'src/presentation/widgets/adaptive_table_layout.dart';
+export 'src/presentation/widgets/date_range/date_range_panel.dart';
+export 'src/presentation/widgets/date_range/date_range_preset.dart';
 export 'src/presentation/widgets/dynamic_form.dart';
 export 'src/presentation/widgets/grid/cell_editor.dart';
 export 'src/presentation/widgets/grid/table_entries.dart' show TableGroupInfo;

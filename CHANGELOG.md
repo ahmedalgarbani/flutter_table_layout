@@ -37,6 +37,11 @@ keeps compiling, and the original tests pass unchanged.
 * Removed dead placeholder code in `FilterItemsUseCase.execute`, which now works and sorts.
 * Fixed every analyzer deprecation (`withOpacity`, `dart:html`, `Share.shareXFiles`, `DropdownButtonFormField.value`, `Switch.activeColor`).
 
+### Date filter redesign (new)
+* The two From / To buttons (each opening the same full calendar) are replaced by a single **"Period" button**. It opens a panel with quick periods (all, today, yesterday, last 7 / 30 days, this / last month, this year), a two-month range calendar and typed From / To fields. On phones it opens as a bottom sheet.
+* `datePresets` / `DateRangePreset` for custom periods, `showTableDateRangePicker` / `DateRangePanel` for standalone use.
+* `dateFilterStyle: DateFilterStyle.separateFields` keeps the previous look.
+
 ### Advanced grid (new)
 * **Frozen columns:** `pin: ColumnPin.start / end`, pin/unpin from the columns menu, LTR and RTL. Implemented with a custom `RenderPinnedRow`.
 * **Sticky header + virtualized rows:** `bodyHeight` / `fillHeight`. Only visible rows are built (tested with 100,000 rows).
@@ -74,7 +79,7 @@ keeps compiling, and the original tests pass unchanged.
 * `saveAndShareFile` returns `Future<String?>` (the saved path or file name).
 
 ### Project
-* 111 package tests + 6 example smoke tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
+* 127 package tests + 6 example smoke tests (previously 7), a CI workflow, stricter lints, a rewritten README with screenshots, and a rebuilt example app with all platforms.
 
 ## 0.0.2
 

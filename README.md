@@ -58,7 +58,7 @@ The grid also covers the "spreadsheet" features: **frozen columns, sticky header
 |---|---|
 | 📱 **Adaptive layout** | Data grid above `mobileBreakpoint` (600 px by default). Below it, rows become expandable cards. Horizontal scrolling kicks in when the columns don't fit. |
 | 🔎 **Search** | Debounced, case-insensitive search over visible and searchable columns. Dates also match `yyyy-MM-dd`. |
-| 📅 **Filters** | Inclusive date range with a "Query" button mode, your own filter widgets (`customFilters`), and a "Clear filters" button. |
+| 📅 **Filters** | A single "Period" button with quick periods, a range calendar and typed dates (bottom sheet on phones), a "Query" button mode, your own filter widgets (`customFilters`), and a "Clear filters" button. |
 | ↕️ **Sorting** | Stable sort. Numbers, strings (case-insensitive), dates and booleans compare naturally, and `null` always sorts last. |
 | 📄 **Pagination** | Numbered pages, a rows-per-page menu, "Showing 11–20 of 48". The current page is clamped automatically when data shrinks. |
 | ☑️ **Selection** | Row checkboxes, a tri-state *select all*, `onSelectionChanged`, and a selection badge. Exports use only the selected rows when there are any. |
@@ -216,7 +216,7 @@ AdaptiveTableLayout<Transaction>(
   // …
   showSearch: true,                          // default
   searchDebounce: const Duration(milliseconds: 250),
-  dateProvider: (t) => t.date,               // shows From / To pickers
+  dateProvider: (t) => t.date,               // shows the "Period" date filter
   firstDate: DateTime(2020), lastDate: DateTime(2030),
   onQueryPressed: () {},                     // optional: apply dates only on "Query"
   initialSortColumnId: 'date',
@@ -254,6 +254,51 @@ class CurrencyFilter extends StatelessWidget {
 ```
 
 > Value providers whose key doesn't match any column are **search-only keys**. For example, `'tags': (t) => t.tags.join(' ')` makes tags searchable without showing a column.
+
+### Date filter ("Period" button)
+
+<p align="center">
+  <img src="doc/screenshots/date_range_desktop.png" alt="Date range panel" width="600">
+  &nbsp;
+  <img src="doc/screenshots/date_range_mobile.png" alt="Date range bottom sheet on a phone" width="200">
+</p>
+
+With a `dateProvider`, the filter bar shows a single **Period** button ("Period: This month ▾", ✕ to clear). It opens:
+
+- **Desktop / web:** a panel anchored to the button with quick periods, a two-month range calendar (one month on narrower screens) and typed From / To fields (`yyyy-mm-dd`).
+- **Phones:** the same as a bottom sheet with preset chips and one month.
+
+Click a first day, then a last day; the days in between are highlighted. **Apply** filters the rows (or waits for your **Query** button when `onQueryPressed` is set), and **Clear** removes the filter.
+
+```dart
+AdaptiveTableLayout<Invoice>(
+  dateProvider: (i) => i.date,
+  firstDate: DateTime(2020),
+  lastDate: DateTime(2030),
+  // Optional: choose / add quick periods (default: all, today, yesterday,
+  // last 7 days, last 30 days, this month, last month, this year).
+  datePresets: [
+    DateRangePreset.all,
+    DateRangePreset.thisMonth,
+    DateRangePreset.lastMonth,
+    DateRangePreset(
+      id: 'quarter',
+      label: (labels) => 'This quarter',
+      range: (now) {
+        final q = (now.month - 1) ~/ 3;
+        return DateTimeRange(
+          start: DateTime(now.year, q * 3 + 1),
+          end: DateTime(now.year, q * 3 + 4, 0),
+        );
+      },
+    ),
+  ],
+  // The previous look (two separate From / To buttons) is still available:
+  // dateFilterStyle: DateFilterStyle.separateFields,
+)
+```
+
+The panel is also usable on its own: `showTableDateRangePicker(context: …, start: …, end: …, theme: …, labels: …)`.
 
 ## Pagination
 
@@ -800,6 +845,8 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `theme` / `labels` | | `AdaptiveTableTheme.of` / `AdaptiveTableLabels.of` | Styling and strings. |
 | `searchDebounce` | `Duration` | `250ms` | Search delay. |
 | `firstDate` / `lastDate` | `DateTime?` | 1900 / 2200 | Date picker range. |
+| `dateFilterStyle` | `DateFilterStyle` | `rangePicker` | "Period" button + panel, or the legacy `separateFields`. |
+| `datePresets` | `List<DateRangePreset>?` | defaults | Quick periods of the date panel (`[]` = none). |
 | `exportOptions` | `TableExportOptions` | defaults | Export configuration. |
 | `isLoading` / `loadingWidget` / `emptyWidget` | | `false` / `null` / `null` | States. |
 

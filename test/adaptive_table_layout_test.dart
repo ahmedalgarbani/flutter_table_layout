@@ -210,7 +210,7 @@ void main() {
         valueProviders: providers,
       ),
     );
-    expect(find.byIcon(Icons.calendar_today), findsNothing);
+    expect(find.byIcon(Icons.date_range_rounded), findsNothing);
 
     await pumpTable(
       tester,
@@ -222,7 +222,8 @@ void main() {
         dateProvider: (p) => p.joined,
       ),
     );
-    expect(find.byIcon(Icons.calendar_today), findsNWidgets(2));
+    expect(find.byIcon(Icons.date_range_rounded), findsOneWidget);
+    expect(find.text('All dates'), findsOneWidget);
   });
 
   testWidgets('mobile layout renders cards that expand', (tester) async {
