@@ -1,4 +1,7 @@
 # Changelog
+## 0.1.1
+
+- Fixes and improvements.
 
 ## 0.1.0
 
