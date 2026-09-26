@@ -197,7 +197,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// active.
   final bool showClearFilters;
 
-  /// Pagination size options, defaults to [5, 10, 20, 50].
+  /// Pagination size options, defaults to `[5, 10, 20, 50]`.
   final List<int> pageSizes;
 
   /// Initial rows per page. Defaults to 10 when it's in [pageSizes],
