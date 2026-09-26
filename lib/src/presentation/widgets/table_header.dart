@@ -101,7 +101,7 @@ class TableHeader<T> extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (titleBlock != null) titleBlock,
+                    ?titleBlock,
                     if (titleBlock != null && actions != null)
                       const SizedBox(height: 8),
                     if (actions != null)

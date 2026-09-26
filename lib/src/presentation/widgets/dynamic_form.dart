@@ -700,7 +700,7 @@ class _DynamicFormState extends State<DynamicForm> {
                   List<String>? result;
                   if (field.onSearchRelationship != null) {
                     result = await field.onSearchRelationship!(context, [
-                      if (currentValue != null) currentValue,
+                      ?currentValue,
                     ]);
                   } else {
                     result = await showDialog<List<String>>(
@@ -708,9 +708,7 @@ class _DynamicFormState extends State<DynamicForm> {
                       builder: (context) => SearchSelectDialog(
                         title: field.label,
                         items: items,
-                        initialSelected: [
-                          if (currentValue != null) currentValue,
-                        ],
+                        initialSelected: [?currentValue],
                         isMultiSelect: false,
                         theme: _theme,
                         onAddInstance: field.onAddInstance,
