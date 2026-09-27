@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+### Skeleton / shimmer loading (new)
+* `loadingStyle: TableLoadingStyle.skeleton` shows placeholder rows shaped like the visible columns (placeholder cards on phones) with a shimmer sweep while there are no rows yet — including the first page of a server-side `dataSource`. The default stays `TableLoadingStyle.spinner`, and `loadingWidget` still takes precedence.
+* `skeletonRowCount` (default: the page size, at most 10).
+* `AdaptiveTableTheme.skeletonBaseColor` / `skeletonHighlightColor` (derived from the row text color by default, so every built-in theme works in light and dark).
+* The sweep follows the text direction (RTL) and stops when the platform asks to reduce motion.
+* Reusable building blocks: `TableSkeleton`, `TableShimmer`, `SkeletonBox`. No new dependency.
+
 ## 0.1.3
 
 ### Fixes

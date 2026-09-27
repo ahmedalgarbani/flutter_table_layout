@@ -77,6 +77,7 @@ The grid also covers the "spreadsheet" features: **frozen columns, sticky header
 | ✏️ **Inline editing** | Double-click or Enter to edit text, number, dropdown, date or boolean cells, with validation and per-cell permissions. |
 | ⌨️ **Keyboard** | Arrows, Enter/F2, Tab, Space, Home/End, Page Up/Down, Ctrl+A, Escape. |
 | ☁️ **Server-side** | `AdaptiveTableDataSource`: search, filters, sort and paging are sent to your API. Stale responses are ignored. |
+| ✨ **Skeleton loading** | `loadingStyle: TableLoadingStyle.skeleton`: placeholder rows (cards on phones) with a shimmer that follows RTL and respects reduced motion. No extra dependency. |
 | 🕹️ **Controller** | `AdaptiveTableController` to search, filter, sort, paginate and select from anywhere. |
 
 ## Installation
@@ -372,6 +373,30 @@ AdaptiveTableLayout<T>(
   emptyWidget: const MyEmptyState(), // otherwise "No data" / "No results"
 )
 ```
+
+### Skeleton / shimmer
+
+```dart
+AdaptiveTableLayout<T>(
+  isLoading: isFetching,
+  loadingStyle: TableLoadingStyle.skeleton, // instead of the spinner
+  skeletonRowCount: 8,                      // default: the page size (max 10)
+)
+```
+
+While there are no rows yet, the table shows placeholder rows shaped like your
+columns (widths / flex), or placeholder cards on phones, with a shimmer sweep.
+It also covers the first page of a server-side `dataSource`. When rows are
+already shown, a refresh keeps them with a thin progress bar, as before.
+
+* Colors: `AdaptiveTableTheme(skeletonBaseColor: …, skeletonHighlightColor: …)`
+  (derived from the row text color by default, so light and dark themes work).
+* The sweep runs right to left in RTL, and stops when the platform asks to
+  reduce motion (`MediaQuery.disableAnimations`).
+* `loadingWidget` still wins when set.
+* Standalone: `TableSkeleton(columnCount: 4, rowCount: 5)`,
+  `TableSkeleton(compact: true)` for cards, or wrap your own
+  `SkeletonBox`es in a `TableShimmer`.
 
 If a value provider throws, the table shows an error message instead of crashing, and recovers on the next change.
 
@@ -849,6 +874,8 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `datePresets` | `List<DateRangePreset>?` | defaults | Quick periods of the date panel (`[]` = none). |
 | `exportOptions` | `TableExportOptions` | defaults | Export configuration. |
 | `isLoading` / `loadingWidget` / `emptyWidget` | | `false` / `null` / `null` | States. |
+| `loadingStyle` | `TableLoadingStyle` | `spinner` | `skeleton` = shimmering placeholder rows while there are no rows. |
+| `skeletonRowCount` | `int?` | page size (max 10) | Number of skeleton rows (half as many cards on phones). |
 
 ## Using the logic without the UI
 
@@ -952,6 +979,7 @@ AdaptiveTableLayout<Transaction>(
 | التعديل المباشر | `isEditable: true` في العمود + `onCellEdited` + `canEditCell` للصلاحيات |
 | لوحة المفاتيح | الأسهم وEnter وTab وEsc وSpace |
 | بيانات من السيرفر | `dataSource: AdaptiveTableDataSource.fromCallback((q) async => ...)` |
+| هيكل تحميل (Skeleton / Shimmer) | `loadingStyle: TableLoadingStyle.skeleton` مع `isLoading`، والألوان من `skeletonBaseColor` و`skeletonHighlightColor` في الثيم |
 
 دليل الاستخدام الكامل بالعربية في [`doc/USAGE_AR.md`](doc/USAGE_AR.md).
 
