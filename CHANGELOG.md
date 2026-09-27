@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+### Fixes
+* **Date panel popped the page underneath (web / wide screens):** pressing *Apply* in the date range panel closed it with the caller's `Navigator`, not the dialog's. With go_router's `ShellRoute` (a nested navigator under the root one that hosts the dialog) this popped the current page instead, throwing *"You have popped the last page off of the stack"* followed by `!_debugLocked` errors. The panel now closes through its own route context. Covered by a regression test with a nested navigator.
+
 ## 0.1.2
 
 ### Release automation

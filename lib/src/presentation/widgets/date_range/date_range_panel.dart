@@ -25,7 +25,16 @@ Future<DateRangeSelection?> showTableDateRangePicker({
   Rect? anchor,
 }) {
   final size = MediaQuery.sizeOf(context);
-  Widget panel({required bool compact, int months = 2}) => DateRangePanel(
+  // [routeContext] must be the context of the dialog / sheet route itself.
+  // Popping with the caller's [context] targets the caller's nearest
+  // navigator, which is not always the one hosting the popup (e.g. a
+  // go_router ShellRoute navigator vs. the root navigator used by
+  // showDialog) — that pops the page underneath instead of the panel.
+  Widget panel(
+    BuildContext routeContext, {
+    required bool compact,
+    int months = 2,
+  }) => DateRangePanel(
     months: months,
     initialStart: start,
     initialEnd: end,
@@ -35,7 +44,7 @@ Future<DateRangeSelection?> showTableDateRangePicker({
     theme: theme,
     labels: labels,
     compact: compact,
-    onApply: (s) => Navigator.of(context).pop(s),
+    onApply: (s) => Navigator.of(routeContext).pop(s),
   );
 
   if (size.width < 600) {
@@ -44,7 +53,7 @@ Future<DateRangeSelection?> showTableDateRangePicker({
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => panel(compact: true),
+      builder: (sheetContext) => panel(sheetContext, compact: true),
     );
   }
   return showDialog<DateRangeSelection>(
@@ -53,7 +62,11 @@ Future<DateRangeSelection?> showTableDateRangePicker({
     builder: (dialogContext) => _AnchoredPopover(
       anchor: anchor,
       textDirection: Directionality.of(context),
-      child: panel(compact: false, months: size.width < 820 ? 1 : 2),
+      child: panel(
+        dialogContext,
+        compact: false,
+        months: size.width < 820 ? 1 : 2,
+      ),
     ),
   );
 }

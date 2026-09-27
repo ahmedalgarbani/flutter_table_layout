@@ -229,6 +229,44 @@ void main() {
     expect(find.byIcon(Icons.date_range_rounded), findsNothing);
   });
 
+  // go_router's ShellRoute puts pages in a nested Navigator while showDialog
+  // uses the root one. Applying used to pop the nested navigator's page
+  // (go_router: "You have popped the last page off of the stack").
+  for (final size in const [Size(1280, 1000), Size(390, 844)]) {
+    testWidgets('Apply inside a nested navigator closes only the panel '
+        '(${size.width.toInt()}px)', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = AdaptiveTableController<Sale>();
+      final nestedKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Navigator(
+            key: nestedKey,
+            onGenerateRoute: (_) => MaterialPageRoute(
+              builder: (_) => Scaffold(
+                body: SingleChildScrollView(
+                  child: _table(controller: controller),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All dates'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Today'));
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(DateRangePanel), findsNothing);
+      expect(find.byType(AdaptiveTableLayout<Sale>), findsOneWidget);
+      expect(controller.filteredItems.length, 1);
+    });
+  }
+
   for (final width in [390.0, 700.0, 1024.0, 1440.0]) {
     for (final locale in const [Locale('en'), Locale('ar')]) {
       testWidgets('panel fits at ${width.toInt()}px (${locale.languageCode})', (
