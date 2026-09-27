@@ -44,3 +44,4 @@ export 'src/presentation/widgets/date_range/date_range_preset.dart';
 export 'src/presentation/widgets/dynamic_form.dart';
 export 'src/presentation/widgets/grid/cell_editor.dart';
 export 'src/presentation/widgets/grid/table_entries.dart' show TableGroupInfo;
+export 'src/presentation/widgets/skeleton/table_skeleton.dart';

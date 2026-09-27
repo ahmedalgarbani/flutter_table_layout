@@ -17,6 +17,7 @@ import '../cubit/table_cubit_state.dart';
 import 'date_range/date_range_preset.dart';
 import 'grid/cell_editor.dart';
 import 'grid/table_entries.dart';
+import 'skeleton/table_skeleton.dart';
 import 'table_content.dart';
 import 'table_filter_bar.dart';
 import 'table_footer.dart';
@@ -373,7 +374,17 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   final Widget? emptyWidget;
 
   /// Optional widget displayed while [isLoading] is `true` and there are no rows.
+  /// Takes precedence over [loadingStyle].
   final Widget? loadingWidget;
+
+  /// What is shown while the first rows load: a spinner (default) or
+  /// skeleton rows / cards with a shimmer ([TableLoadingStyle.skeleton]).
+  /// Colors come from [AdaptiveTableTheme.skeletonBaseColor] and
+  /// [AdaptiveTableTheme.skeletonHighlightColor].
+  final TableLoadingStyle loadingStyle;
+
+  /// Number of skeleton rows. `null` = the page size (at most 10).
+  final int? skeletonRowCount;
 
   const AdaptiveTableLayout({
     super.key,
@@ -445,6 +456,8 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.isLoading = false,
     this.emptyWidget,
     this.loadingWidget,
+    this.loadingStyle = TableLoadingStyle.spinner,
+    this.skeletonRowCount,
   }) : assert(pageSizes.length > 0, 'pageSizes must not be empty');
 
   @override
@@ -580,6 +593,8 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       showSelection: widget.showSelection,
       emptyWidget: widget.emptyWidget,
       loadingWidget: widget.loadingWidget,
+      loadingStyle: widget.loadingStyle,
+      skeletonRowCount: widget.skeletonRowCount,
       isLoading: widget.isLoading,
       minDesktopWidth: widget.minDesktopWidth,
       mobileBreakpoint: _contentBreakpoint,

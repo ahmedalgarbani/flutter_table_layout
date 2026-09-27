@@ -118,6 +118,15 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
   /// Blur strength used when [enableGlassmorphism] is `true`.
   final double blurSigma;
 
+  /// Resting color of skeleton placeholders
+  /// (`TableLoadingStyle.skeleton`). Derived from the row text color when
+  /// `null`. Translucent colors blend with the row background.
+  final Color? skeletonBaseColor;
+
+  /// Color of the shimmer band sweeping over skeleton placeholders. Derived
+  /// from the row text color when `null`.
+  final Color? skeletonHighlightColor;
+
   const AdaptiveTableTheme({
     required this.cardBackgroundColor,
     required this.borderRadius,
@@ -157,6 +166,8 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
     this.footerGradient,
     this.enableGlassmorphism = false,
     this.blurSigma = 12.0,
+    this.skeletonBaseColor,
+    this.skeletonHighlightColor,
   });
 
   /// The theme a table uses when none is passed explicitly: the
@@ -489,6 +500,17 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
   Color get effectiveSummaryBackgroundColor =>
       summaryBackgroundColor ?? headerBackgroundColor.withValues(alpha: 0.4);
 
+  /// [skeletonBaseColor] or a derived default.
+  Color get effectiveSkeletonBaseColor =>
+      skeletonBaseColor ?? _skeletonInk.withValues(alpha: 0.12);
+
+  /// [skeletonHighlightColor] or a derived default: a fainter tint, so the
+  /// band reads as light sweeping by on both light and dark rows.
+  Color get effectiveSkeletonHighlightColor =>
+      skeletonHighlightColor ?? _skeletonInk.withValues(alpha: 0.04);
+
+  Color get _skeletonInk => rowTextStyle.color ?? const Color(0xFF808080);
+
   @override
   AdaptiveTableTheme copyWith({
     Color? cardBackgroundColor,
@@ -523,6 +545,8 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
     Gradient? footerGradient,
     bool? enableGlassmorphism,
     double? blurSigma,
+    Color? skeletonBaseColor,
+    Color? skeletonHighlightColor,
   }) {
     return AdaptiveTableTheme(
       cardBackgroundColor: cardBackgroundColor ?? this.cardBackgroundColor,
@@ -562,6 +586,9 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
       footerGradient: footerGradient ?? this.footerGradient,
       enableGlassmorphism: enableGlassmorphism ?? this.enableGlassmorphism,
       blurSigma: blurSigma ?? this.blurSigma,
+      skeletonBaseColor: skeletonBaseColor ?? this.skeletonBaseColor,
+      skeletonHighlightColor:
+          skeletonHighlightColor ?? this.skeletonHighlightColor,
     );
   }
 
@@ -626,6 +653,11 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
       footerGradient: Gradient.lerp(footerGradient, other.footerGradient, t),
       enableGlassmorphism: pick(enableGlassmorphism, other.enableGlassmorphism),
       blurSigma: lerpDouble(blurSigma, other.blurSigma, t)!,
+      skeletonBaseColor: cn(skeletonBaseColor, other.skeletonBaseColor),
+      skeletonHighlightColor: cn(
+        skeletonHighlightColor,
+        other.skeletonHighlightColor,
+      ),
     );
   }
 }

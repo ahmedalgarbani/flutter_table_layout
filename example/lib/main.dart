@@ -344,6 +344,7 @@ class _DashboardHomeState extends State<DashboardHome>
         initialSortColumnId: 'date',
         initialSortAscending: false,
         isLoading: _isLoading,
+        loadingStyle: TableLoadingStyle.skeleton,
         theme: theme,
         mobileTitleColumnId: 'details',
         mobileSubtitleColumnId: 'baseEquivalent',
@@ -358,7 +359,11 @@ class _DashboardHomeState extends State<DashboardHome>
   }
 
   Future<void> _simulateRefresh() async {
-    setState(() => _isLoading = true);
+    // Clearing the rows shows the skeleton placeholders while "fetching".
+    setState(() {
+      _transactions = const [];
+      _isLoading = true;
+    });
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
     setState(() {

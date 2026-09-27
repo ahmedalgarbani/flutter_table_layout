@@ -9,6 +9,7 @@ import 'adaptive_table_layout.dart';
 import 'grid/cell_renderer.dart';
 import 'grid/table_entries.dart';
 import 'grid/table_grid.dart';
+import 'skeleton/table_skeleton.dart';
 
 /// The core content renderer. Detects screen size and toggles between a dense
 /// desktop tabular view and a responsive mobile card list view.
@@ -18,6 +19,8 @@ class TableContent<T> extends StatelessWidget {
   final bool showSelection;
   final Widget? emptyWidget;
   final Widget? loadingWidget;
+  final TableLoadingStyle loadingStyle;
+  final int? skeletonRowCount;
   final bool isLoading;
   final double minDesktopWidth;
   final double mobileBreakpoint;
@@ -45,6 +48,8 @@ class TableContent<T> extends StatelessWidget {
     required this.showSelection,
     this.emptyWidget,
     this.loadingWidget,
+    this.loadingStyle = TableLoadingStyle.spinner,
+    this.skeletonRowCount,
     this.isLoading = false,
     required this.minDesktopWidth,
     this.mobileBreakpoint = 600,
@@ -77,7 +82,7 @@ class TableContent<T> extends StatelessWidget {
     return BlocBuilder<TableCubit<T>, TableCubitState<T>>(
       builder: (context, state) {
         if (state is TableLoading<T> || state is TableInitial<T>) {
-          return _loadingIndicator();
+          return _loadingIndicator(null);
         }
 
         if (state is TableError<T>) {
@@ -122,7 +127,7 @@ class TableContent<T> extends StatelessWidget {
             final mobile = constraints.maxWidth < mobileBreakpoint;
             if (items.isEmpty && (mobile || !showColumnFilters)) {
               if (loading && state.originalItems.isEmpty) {
-                return _loadingIndicator();
+                return _loadingIndicator(state, mobile: mobile);
               }
               return emptyWidget ?? _defaultEmpty(state);
             }
@@ -150,14 +155,16 @@ class TableContent<T> extends StatelessWidget {
               canEditCell: canEditCell,
               groupHeaderBuilder: groupHeaderBuilder,
               minRowHeight: minRowHeight,
-              emptyPlaceholder: emptyWidget ?? _defaultEmpty(state),
+              emptyPlaceholder: loading && state.originalItems.isEmpty
+                  ? _loadingIndicator(state, header: false)
+                  : emptyWidget ?? _defaultEmpty(state),
               theme: theme,
               labels: labels,
             );
           },
         );
 
-        if (!loading) return content;
+        if (!loading || _skeletonShown(state)) return content;
         return Stack(
           fit: StackFit.passthrough,
           children: [
@@ -177,14 +184,48 @@ class TableContent<T> extends StatelessWidget {
     );
   }
 
-  Widget _loadingIndicator() {
-    return loadingWidget ??
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: CircularProgressIndicator(color: theme.accentColor),
-          ),
-        );
+  /// The skeleton replaces the rows entirely, so the "busy" overlay on top
+  /// of the content is not needed.
+  bool _skeletonShown(TableLoaded<T> state) =>
+      loadingWidget == null &&
+      loadingStyle == TableLoadingStyle.skeleton &&
+      state.originalItems.isEmpty;
+
+  /// [state] is `null` before the first load. [mobile] `null` = decide from
+  /// the available width. [header] draws a placeholder header row (off when
+  /// the real grid header is already shown).
+  Widget _loadingIndicator(
+    TableLoaded<T>? state, {
+    bool? mobile,
+    bool header = true,
+  }) {
+    if (loadingWidget != null) return loadingWidget!;
+    if (loadingStyle == TableLoadingStyle.spinner) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: CircularProgressIndicator(color: theme.accentColor),
+        ),
+      );
+    }
+    final pageSize = state?.tableState.pageSize ?? 0;
+    final rows = skeletonRowCount ?? (pageSize > 0 ? pageSize.clamp(1, 10) : 8);
+    final visible = state == null
+        ? columns.where((c) => c.definition.isVisible).toList()
+        : state.arrange(columns, (c) => c.definition);
+    Widget skeleton(bool compact) => TableSkeleton(
+      columns: [for (final c in visible) c.definition],
+      rowCount: compact ? (rows / 2).ceil() : rows,
+      compact: compact,
+      showHeader: header,
+      showSelection: showSelection,
+      theme: theme,
+    );
+    if (mobile != null) return skeleton(mobile);
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          skeleton(constraints.maxWidth < mobileBreakpoint),
+    );
   }
 
   Widget _defaultEmpty(TableLoaded<T> state) {
