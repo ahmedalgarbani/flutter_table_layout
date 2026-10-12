@@ -31,6 +31,8 @@ class TableFooter<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<TableCubit<T>, TableCubitState<T>>(
+      // Errors and loading states keep the last footer.
+      buildWhen: (prev, next) => next is TableLoaded<T>,
       builder: (context, state) {
         if (state is! TableLoaded<T>) return const SizedBox.shrink();
 
@@ -71,8 +73,18 @@ class TableFooter<T> extends StatelessWidget {
     final totalPages = state.totalPages;
     final currentPage = tState.currentPage.clamp(1, totalPages);
     final total = state.totalCount;
-    final from = total == 0 ? 0 : (currentPage - 1) * tState.pageSize + 1;
-    final to = total == 0 ? 0 : (currentPage * tState.pageSize).clamp(0, total);
+    final int from;
+    final int to;
+    if (total == 0) {
+      from = 0;
+      to = 0;
+    } else if (!tState.isPaginated) {
+      from = 1;
+      to = total;
+    } else {
+      from = (currentPage - 1) * tState.pageSize + 1;
+      to = (currentPage * tState.pageSize).clamp(0, total);
+    }
 
     final status = Text(
       labels.rangeStatus(from, to, total),
@@ -142,8 +154,11 @@ class TableFooter<T> extends StatelessWidget {
 
   Widget _buildPageSizeSelector(BuildContext context, int current) {
     // The current size must be one of the dropdown values, otherwise
-    // DropdownButton throws an assertion.
-    final sizes = {...pageSizes.where((s) => s > 0), current}.toList()..sort();
+    // DropdownButton throws an assertion. Sizes <= 0 mean "All" (last).
+    int norm(int s) => s <= 0 ? 0 : s;
+    final value = norm(current);
+    final sizes = {...pageSizes.map(norm), value}.toList()
+      ..sort((a, b) => a == 0 ? 1 : (b == 0 ? -1 : a.compareTo(b)));
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -155,7 +170,7 @@ class TableFooter<T> extends StatelessWidget {
         SizedBox(
           height: 30,
           child: DropdownButton<int>(
-            value: current,
+            value: value,
             dropdownColor: theme.cardBackgroundColor.withValues(alpha: 1),
             underline: const SizedBox.shrink(),
             isDense: true,
@@ -170,7 +185,10 @@ class TableFooter<T> extends StatelessWidget {
             },
             items: [
               for (final size in sizes)
-                DropdownMenuItem<int>(value: size, child: Text('$size')),
+                DropdownMenuItem<int>(
+                  value: size,
+                  child: Text(size == 0 ? labels.allRows : '$size'),
+                ),
             ],
           ),
         ),

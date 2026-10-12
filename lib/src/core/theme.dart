@@ -4,6 +4,18 @@ import 'package:flutter/material.dart';
 
 const Color _defaultAccent = Color(0xFF1E88E5);
 
+/// Vertical spacing of grid rows and column headers.
+enum TableDensity {
+  /// Half the theme's vertical padding: more rows fit on screen.
+  compact,
+
+  /// The theme's own padding.
+  standard,
+
+  /// 40% more vertical padding.
+  comfortable,
+}
+
 /// Style configurations for the `AdaptiveTableLayout` widget.
 /// Enables detailed adjustments of fonts, colors, border spacing, and animations
 /// to match the app's aesthetic guidelines (including dark/light mode integration).
@@ -186,6 +198,52 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
     return theme.brightness == Brightness.dark
         ? AdaptiveTableTheme.dark(context, accentColor: accent)
         : AdaptiveTableTheme.light(context, accentColor: accent);
+  }
+
+  /// Material 3 look derived from the app's [ColorScheme] (or
+  /// [colorScheme]): tonal surfaces, `outlineVariant` dividers and `primary`
+  /// accents, so the table matches any seed color in light and dark mode.
+  factory AdaptiveTableTheme.material(
+    BuildContext context, {
+    ColorScheme? colorScheme,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = colorScheme ?? theme.colorScheme;
+    final text = theme.textTheme;
+    final dark = scheme.brightness == Brightness.dark;
+    return AdaptiveTableTheme(
+      cardBackgroundColor: scheme.surfaceContainerLowest,
+      borderRadius: BorderRadius.circular(16.0),
+      cardBorder: Border.all(color: scheme.outlineVariant),
+      toolbarBackgroundColor: scheme.surfaceContainerLowest,
+      headerBackgroundColor: scheme.surfaceContainer,
+      headerTextStyle: (text.labelLarge ?? const TextStyle(fontSize: 14))
+          .copyWith(
+            fontWeight: FontWeight.w600,
+            color: scheme.onSurfaceVariant,
+          ),
+      titleTextStyle: (text.titleLarge ?? const TextStyle(fontSize: 22))
+          .copyWith(fontWeight: FontWeight.w600, color: scheme.onSurface),
+      rowBackgroundColor: scheme.surfaceContainerLowest,
+      alternateRowBackgroundColor: scheme.surfaceContainerLow,
+      rowTextStyle: (text.bodyMedium ?? const TextStyle(fontSize: 14)).copyWith(
+        color: scheme.onSurface,
+      ),
+      rowHoverColor: scheme.onSurface.withValues(alpha: 0.04),
+      selectedRowColor: scheme.secondaryContainer.withValues(alpha: 0.75),
+      dividerColor: scheme.outlineVariant.withValues(alpha: 0.7),
+      footerBackgroundColor: scheme.surfaceContainerLowest,
+      footerTextStyle: (text.bodySmall ?? const TextStyle(fontSize: 12))
+          .copyWith(color: scheme.onSurfaceVariant),
+      summaryBackgroundColor: scheme.surfaceContainerLow,
+      statusPositiveColor: dark
+          ? const Color(0xFF81C995)
+          : const Color(0xFF1E8E3E),
+      statusNegativeColor: scheme.error,
+      actionIconColor: scheme.onSurfaceVariant,
+      accentColor: scheme.primary,
+      onAccentColor: scheme.onPrimary,
+    );
   }
 
   /// Factory for a light modern themed table layout.
@@ -510,6 +568,30 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
       skeletonHighlightColor ?? _skeletonInk.withValues(alpha: 0.04);
 
   Color get _skeletonInk => rowTextStyle.color ?? const Color(0xFF808080);
+
+  /// A copy whose row and header vertical padding is scaled for [density].
+  AdaptiveTableTheme withDensity(TableDensity density) {
+    final factor = switch (density) {
+      TableDensity.compact => 0.5,
+      TableDensity.standard => 1.0,
+      TableDensity.comfortable => 1.4,
+    };
+    if (factor == 1.0) return this;
+    return copyWith(
+      rowPadding: _scaleVertical(rowPadding, factor),
+      headerPadding: _scaleVertical(headerPadding, factor),
+    );
+  }
+
+  static EdgeInsetsGeometry _scaleVertical(EdgeInsetsGeometry p, double f) {
+    if (p is EdgeInsets) {
+      return p.copyWith(top: p.top * f, bottom: p.bottom * f);
+    }
+    if (p is EdgeInsetsDirectional) {
+      return p.copyWith(top: p.top * f, bottom: p.bottom * f);
+    }
+    return p;
+  }
 
   @override
   AdaptiveTableTheme copyWith({

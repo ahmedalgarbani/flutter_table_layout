@@ -21,6 +21,7 @@ export 'src/core/theme.dart';
 export 'src/core/utils/file_saver.dart';
 
 // Data
+export 'src/data/exporters/csv_exporter.dart';
 export 'src/data/exporters/excel_exporter.dart';
 export 'src/data/exporters/export_utils.dart';
 export 'src/data/exporters/pdf_exporter.dart';
@@ -31,8 +32,11 @@ export 'src/data/exporters/word_exporter.dart';
 export 'src/domain/datasource/table_data_source.dart';
 export 'src/domain/models/column_definition.dart';
 export 'src/domain/models/column_filter.dart';
+export 'src/domain/models/table_aggregate.dart';
+export 'src/domain/models/table_snapshot.dart';
 export 'src/domain/models/table_state_model.dart';
 export 'src/domain/usecases/filter_items_usecase.dart';
+export 'src/domain/utils/table_text_normalizer.dart';
 
 // Presentation
 export 'src/presentation/controller/adaptive_table_controller.dart';

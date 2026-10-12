@@ -10,7 +10,16 @@ class TableDataPage<T> {
   /// Total number of rows matching the query on the server (all pages).
   final int totalCount;
 
-  const TableDataPage({required this.items, required this.totalCount});
+  /// Footer totals over every matching row (column id → value), shown in
+  /// the totals row of columns that declare an `aggregate`. When `null`,
+  /// the table aggregates the rows of the current page only.
+  final Map<String, Object?>? aggregates;
+
+  const TableDataPage({
+    required this.items,
+    required this.totalCount,
+    this.aggregates,
+  });
 }
 
 /// Loads rows from a server (or any async source) page by page.

@@ -126,22 +126,24 @@ class DateRangePreset {
   static String _lastMonthLabel(AdaptiveTableLabels l) => l.lastMonth;
   static String _thisYearLabel(AdaptiveTableLabels l) => l.thisYear;
 
+  /// [days] calendar days before [now]'s day. Calendar arithmetic (not
+  /// `subtract(Duration)`) so a daylight-saving change in between can't land
+  /// on 23:00 of the previous day.
+  static DateTime _daysAgo(DateTime now, int days) =>
+      DateTime(now.year, now.month, now.day - days);
+
   static DateTimeRange? _allRange(DateTime now) => null;
   static DateTimeRange _todayRange(DateTime now) =>
       DateTimeRange(start: _day(now), end: _day(now));
   static DateTimeRange _yesterdayRange(DateTime now) {
-    final d = _day(now).subtract(const Duration(days: 1));
+    final d = _daysAgo(now, 1);
     return DateTimeRange(start: d, end: d);
   }
 
-  static DateTimeRange _last7Range(DateTime now) => DateTimeRange(
-    start: _day(now).subtract(const Duration(days: 6)),
-    end: _day(now),
-  );
-  static DateTimeRange _last30Range(DateTime now) => DateTimeRange(
-    start: _day(now).subtract(const Duration(days: 29)),
-    end: _day(now),
-  );
+  static DateTimeRange _last7Range(DateTime now) =>
+      DateTimeRange(start: _daysAgo(now, 6), end: _day(now));
+  static DateTimeRange _last30Range(DateTime now) =>
+      DateTimeRange(start: _daysAgo(now, 29), end: _day(now));
   static DateTimeRange _thisMonthRange(DateTime now) => DateTimeRange(
     start: DateTime(now.year, now.month),
     end: DateTime(now.year, now.month + 1, 0),

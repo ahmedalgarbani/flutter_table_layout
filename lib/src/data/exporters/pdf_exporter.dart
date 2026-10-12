@@ -29,6 +29,9 @@ class PdfExporter {
   ///
   /// When [pageFormat] is `null`, A4 is used, switched to landscape when more
   /// than 6 columns are exported.
+  ///
+  /// [totals] (column id → value, already formatted or raw) adds a bold
+  /// totals row, with [totalsLabel] in the first column when it has no total.
   Future<Uint8List> generatePdf<T>({
     required String title,
     String? subtitle,
@@ -40,6 +43,8 @@ class PdfExporter {
     Map<String, ExportValueFormatter>? formatters,
     PdfPageFormat? pageFormat,
     PdfColor accentColor = PdfColors.blue800,
+    Map<String, Object?>? totals,
+    String totalsLabel = 'Total',
   }) async {
     final (regular, bold) = await _resolveFonts();
     final pdf = pw.Document(title: title);
@@ -55,6 +60,21 @@ class PdfExporter {
         return (formatters?[col.id] ?? ExportUtils.formatValue)(raw);
       }).toList();
     }).toList();
+    // Header row = 0, so the totals row is number items.length + 1.
+    int? totalsRowNum;
+    if (totals != null && totals.isNotEmpty) {
+      final t = ExportUtils.totalsRow(visibleCols, totals);
+      rows.add([
+        for (var i = 0; i < visibleCols.length; i++)
+          i == t.labelIndex
+              ? totalsLabel
+              : ExportUtils.formatValue(t.values[i]),
+      ]);
+      totalsRowNum = rows.length;
+    }
+    final headerText = ExportUtils.isLightColor(accentColor.toInt())
+        ? PdfColors.black
+        : PdfColors.white;
 
     final format =
         pageFormat ??
@@ -138,10 +158,31 @@ class PdfExporter {
                 ),
                 headerStyle: pw.TextStyle(
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.white,
+                  color: headerText,
                   fontSize: 10,
                 ),
                 cellStyle: const pw.TextStyle(fontSize: 9.5),
+                textStyleBuilder: totalsRowNum == null
+                    ? null
+                    : (index, data, rowNum) => rowNum == totalsRowNum
+                          ? pw.TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: pw.FontWeight.bold,
+                            )
+                          : null,
+                cellDecoration: totalsRowNum == null
+                    ? null
+                    : (index, data, rowNum) => rowNum == totalsRowNum
+                          ? const pw.BoxDecoration(
+                              color: PdfColors.grey200,
+                              border: pw.Border(
+                                top: pw.BorderSide(
+                                  color: PdfColors.grey600,
+                                  width: 1,
+                                ),
+                              ),
+                            )
+                          : const pw.BoxDecoration(),
                 headerDecoration: pw.BoxDecoration(color: accentColor),
                 rowDecoration: const pw.BoxDecoration(color: PdfColors.white),
                 oddRowDecoration: const pw.BoxDecoration(
@@ -196,6 +237,8 @@ class PdfExporter {
     Map<String, ExportValueFormatter>? formatters,
     PdfPageFormat? pageFormat,
     PdfColor accentColor = PdfColors.blue800,
+    Map<String, Object?>? totals,
+    String totalsLabel = 'Total',
   }) async {
     final pdfBytes = await generatePdf<T>(
       title: title,
@@ -208,6 +251,8 @@ class PdfExporter {
       formatters: formatters,
       pageFormat: pageFormat,
       accentColor: accentColor,
+      totals: totals,
+      totalsLabel: totalsLabel,
     );
 
     await Printing.layoutPdf(

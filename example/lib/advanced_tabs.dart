@@ -22,12 +22,14 @@ List<AdaptiveTableColumn<Employee>> employeeColumns({
       width: 80,
       alignment: TableColumnAlignment.center,
       pin: ColumnPin.start,
+      isGroupable: false,
     ),
     AdaptiveTableColumn(
       id: 'name',
       title: t('الاسم', 'Name'),
       width: 190,
       pin: ColumnPin.start,
+      isGroupable: false,
       isEditable: editable,
       cellValidator: (v) =>
           (v as String? ?? '').trim().isEmpty ? t('مطلوب', 'Required') : null,
@@ -45,8 +47,11 @@ List<AdaptiveTableColumn<Employee>> employeeColumns({
       title: t('الراتب', 'Salary'),
       width: 150,
       alignment: TableColumnAlignment.end,
+      isGroupable: false,
       isEditable: editable,
       valueFormatter: (v) => _money.format(v),
+      // Footer total (live with filters; returned by the server in server mode).
+      aggregate: TableAggregate.sum,
       cellValidator: (v) =>
           v is num && v < 0 ? t('قيمة سالبة', 'Must be positive') : null,
     ),
@@ -55,6 +60,7 @@ List<AdaptiveTableColumn<Employee>> employeeColumns({
       title: t('تاريخ التعيين', 'Hired on'),
       width: 150,
       alignment: TableColumnAlignment.center,
+      isGroupable: false,
       isEditable: editable,
       valueFormatter: (v) => _day.format(v as DateTime),
     ),
@@ -81,6 +87,7 @@ List<AdaptiveTableColumn<Employee>> employeeColumns({
       isExportable: false,
       isFilterable: false,
       isResizable: false,
+      isGroupable: false,
       cellBuilder: (context, e) => IconButton(
         tooltip: t('عرض', 'Open'),
         visualDensity: VisualDensity.compact,
@@ -117,7 +124,7 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
   late List<Employee> _employees;
   bool _ready = false;
   bool _canEdit = true;
-  String? _groupBy;
+  TableDensity _density = TableDensity.standard;
 
   bool get _isArabic => Localizations.localeOf(context).languageCode == 'ar';
   String _t(String ar, String en) => _isArabic ? ar : en;
@@ -148,11 +155,19 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
+    final (densityIcon, densityLabel) = switch (_density) {
+      TableDensity.compact => (Icons.density_small, _t('مضغوط', 'Compact')),
+      TableDensity.standard => (Icons.density_medium, _t('عادي', 'Standard')),
+      TableDensity.comfortable => (
+        Icons.density_large,
+        _t('مريح', 'Comfortable'),
+      ),
+    };
     return AdaptiveTableLayout<Employee>(
       title: _t('الموظفون', 'Employees'),
       subtitle: _t(
-        '2000 صف · أعمدة مثبتة · فلترة لكل عمود · تعديل مباشر',
-        '2,000 rows · frozen columns · column filters · inline editing',
+        '2000 صف · أعمدة مثبتة · فلترة لكل عمود · تعديل مباشر · إجماليات',
+        '2,000 rows · frozen columns · column filters · inline editing · totals',
       ),
       titleIcon: Icon(Icons.badge_outlined, color: theme.accentColor),
       items: _employees,
@@ -162,10 +177,14 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
         editable: true,
       ),
       valueProviders: employeeProviders,
+      // Edits replace rows with new instances: the id keeps them selected.
+      rowKey: (e) => e.id,
       fillHeight: true,
       showPagination: false,
       showColumnFilters: true,
-      groupByColumnId: _groupBy,
+      showGroupingMenu: true,
+      tristateSort: true,
+      density: _density,
       groupHeaderBuilder: (context, g) => Text(
         '${_t('متوسط الراتب', 'Avg salary')}: '
         '${_money.format(g.rows.fold<double>(0, (s, e) => s + e.salary) / g.rows.length)}',
@@ -178,33 +197,19 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
       mobileTitleColumnId: 'name',
       mobileSubtitleColumnId: 'department',
       theme: theme,
-      summaryBuilder: (context, rows) => Text(
-        '${_t('الإجمالي', 'Total payroll')}: '
-        '${_money.format(rows.fold<double>(0, (s, e) => s + e.salary))}',
-        style: TextStyle(fontWeight: FontWeight.bold, color: theme.accentColor),
-      ),
       toolbarActions: [
-        PopupMenuButton<String>(
-          tooltip: _t('تجميع حسب', 'Group by'),
+        IconButton(
+          tooltip: '${_t('الكثافة', 'Density')}: $densityLabel',
+          visualDensity: VisualDensity.compact,
           icon: Icon(
-            Icons.account_tree_outlined,
+            densityIcon,
             size: 20,
-            color: _groupBy == null
-                ? theme.effectiveToolbarIconColor
-                : theme.accentColor,
+            color: theme.effectiveToolbarIconColor,
           ),
-          onSelected: (v) => setState(() => _groupBy = v.isEmpty ? null : v),
-          itemBuilder: (context) => [
-            PopupMenuItem(
-              value: '',
-              child: Text(_t('بدون تجميع', 'No grouping')),
-            ),
-            PopupMenuItem(
-              value: 'department',
-              child: Text(_t('القسم', 'Department')),
-            ),
-            PopupMenuItem(value: 'city', child: Text(_t('المدينة', 'City'))),
-          ],
+          onPressed: () => setState(() {
+            _density = TableDensity
+                .values[(_density.index + 1) % TableDensity.values.length];
+          }),
         ),
         Tooltip(
           message: _t('صلاحية التعديل', 'Edit permission'),
@@ -274,6 +279,13 @@ class _ServerDataTabState extends State<ServerDataTab> {
     return TableDataPage(
       items: result.paginated,
       totalCount: result.totalCount,
+      // Totals over every matching row, not just this page.
+      aggregates: {
+        'salary': result.filteredAndSorted.fold<double>(
+          0,
+          (sum, e) => sum + e.salary,
+        ),
+      },
     );
   }
 
@@ -290,6 +302,7 @@ class _ServerDataTabState extends State<ServerDataTab> {
       dataSource: _source,
       columns: employeeColumns(isArabic: _isArabic, theme: theme),
       valueProviders: employeeProviders,
+      rowKey: (e) => e.id,
       fillHeight: true,
       pageSizes: const [25, 50, 100],
       initialPageSize: 25,

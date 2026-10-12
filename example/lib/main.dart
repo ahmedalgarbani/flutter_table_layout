@@ -10,7 +10,11 @@ void main() {
   runApp(const ShowcaseApp());
 }
 
-enum DemoThemeStyle { modern, glassmorphic, gradient, cozy }
+enum DemoThemeStyle { modern, material, glassmorphic, gradient, cozy }
+
+/// Saved table states (query + column layout), keyed by table. A real app
+/// would keep `snapshot.encode()` in shared_preferences or on its server.
+final demoSnapshots = <String, TableSnapshot>{};
 
 class ShowcaseApp extends StatefulWidget {
   const ShowcaseApp({
@@ -151,6 +155,7 @@ class _DashboardHomeState extends State<DashboardHome>
         isDark: isDark,
       ),
       DemoThemeStyle.cozy => AdaptiveTableTheme.cozy(context, isDark: isDark),
+      DemoThemeStyle.material => AdaptiveTableTheme.material(context),
       DemoThemeStyle.modern => AdaptiveTableTheme.adaptive(context),
     };
   }
@@ -175,6 +180,10 @@ class _DashboardHomeState extends State<DashboardHome>
               PopupMenuItem(
                 value: DemoThemeStyle.modern,
                 child: Text(_t('عصري (افتراضي)', 'Modern (default)')),
+              ),
+              PopupMenuItem(
+                value: DemoThemeStyle.material,
+                child: Text(_t('ماتيريال 3', 'Material 3')),
               ),
               PopupMenuItem(
                 value: DemoThemeStyle.glassmorphic,
@@ -259,24 +268,28 @@ class _DashboardHomeState extends State<DashboardHome>
         title: _t('م', 'No.'),
         width: 80,
         alignment: TableColumnAlignment.center,
+        isGroupable: false,
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'date',
         title: _t('التاريخ', 'Date'),
         width: 120,
         alignment: TableColumnAlignment.center,
+        isGroupable: false,
         valueFormatter: (v) => _day.format(v as DateTime),
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'details',
         title: _t('البيان', 'Details'),
         flex: 3,
+        isGroupable: false,
       ),
       AdaptiveTableColumn<AccountTransaction>(
         id: 'amount',
         title: _t('المبلغ', 'Amount'),
         width: 120,
         alignment: TableColumnAlignment.end,
+        isGroupable: false,
         valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<AccountTransaction>(
@@ -291,6 +304,7 @@ class _DashboardHomeState extends State<DashboardHome>
         title: _t('المعادل (ر.ي)', 'Equivalent (YER)'),
         width: 150,
         alignment: TableColumnAlignment.end,
+        isGroupable: false,
         valueFormatter: (v) => _money.format(v),
       ),
       AdaptiveTableColumn<AccountTransaction>(
@@ -333,6 +347,11 @@ class _DashboardHomeState extends State<DashboardHome>
         items: _transactions,
         columns: columns,
         valueProviders: providers,
+        rowKey: (t) => t.id,
+        // Sort, filters, hidden / resized columns survive a language switch.
+        initialSnapshot: demoSnapshots['transactions'],
+        onSnapshotChanged: (s) => demoSnapshots['transactions'] = s,
+        showGroupingMenu: true,
         dateProvider: (t) => t.date,
         customFilterMatcher: (t, filters) {
           final currency = filters['currency'];
@@ -680,6 +699,7 @@ class _DashboardHomeState extends State<DashboardHome>
         items: _currencies,
         columns: columns,
         valueProviders: providers,
+        rowKey: (c) => c.id,
         showSummary: false,
         showSelection: false,
         pageSizes: const [5, 10],

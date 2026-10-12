@@ -88,8 +88,9 @@ void main() {
       expect(html, contains('Tom &amp; &lt;Jerry&gt;'));
       expect(html, contains('A &lt;b&gt;title&lt;/b&gt;'));
       expect(html, contains('قهوة &quot;عربية&quot;'));
-      expect(html, isNot(contains('<th>Date</th>')));
-      expect(html, isNot(contains('<th>Actions</th>')));
+      expect(html, contains('>Name</th>'));
+      expect(html, isNot(contains('>Date</th>')));
+      expect(html, isNot(contains('>Actions</th>')));
       expect(html, contains('dir="rtl"'));
     });
 
@@ -142,6 +143,122 @@ void main() {
           );
       expect(bytes.length, greaterThan(500));
       expect(String.fromCharCodes(bytes.sublist(0, 5)), '%PDF-');
+    });
+  });
+
+  group('CsvExporter', () {
+    test('BOM, quoting, raw values and formula protection', () async {
+      final bytes = await const CsvExporter().generateCsv<Item>(
+        columns: _columns,
+        items: [
+          ..._items,
+          Item(3, '=HYPERLINK("x")', -5, DateTime(2026, 5, 1)),
+        ],
+        valueProviders: _providers,
+      );
+      expect(bytes.take(3), [0xEF, 0xBB, 0xBF]);
+      final lines = utf8.decode(bytes.sublist(3)).split('\r\n');
+      expect(lines[0], 'ID,Name,Price,Date'); // Actions is not exportable
+      expect(lines[1], '1,Tom & <Jerry>,9.5,2026-04-22');
+      expect(lines[2], '2,"قهوة ""عربية""",12,2026-04-23 14:30');
+      // Text that a spreadsheet would run is neutralized; numbers are not.
+      expect(lines[3], '3,"\'=HYPERLINK(""x"")",-5,2026-05-01');
+    });
+
+    test('delimiter, no BOM, formatters and totals', () async {
+      final bytes = await const CsvExporter().generateCsv<Item>(
+        columns: _columns,
+        items: _items,
+        valueProviders: _providers,
+        delimiter: ';',
+        includeBom: false,
+        formatters: {'price': (v) => (v as num).toStringAsFixed(2)},
+        totals: {'price': 21.5},
+        totalsLabel: 'Total',
+      );
+      final lines = utf8.decode(bytes).trim().split('\r\n');
+      expect(lines[1], '1;Tom & <Jerry>;9.50;2026-04-22');
+      expect(lines.last, 'Total;;21.5;');
+    });
+
+    test('encodeCell', () {
+      expect(CsvExporter.encodeCell(null), '');
+      expect(CsvExporter.encodeCell('a,b'), '"a,b"');
+      expect(CsvExporter.encodeCell('line\nbreak'), '"line\nbreak"');
+      expect(CsvExporter.encodeCell('-1,250.00'), '"-1,250.00"');
+      expect(CsvExporter.encodeCell('@cmd'), "'@cmd");
+      expect(CsvExporter.encodeCell(3.0), '3');
+    });
+  });
+
+  group('Totals in exports', () {
+    test('Word: tfoot row with the label', () async {
+      final bytes = await const WordExporter().generateWord<Item>(
+        title: 'T',
+        columns: _columns,
+        items: _items,
+        valueProviders: _providers,
+        totals: {'price': r'$21.50'},
+        totalsLabel: 'الإجمالي',
+      );
+      final html = utf8.decode(bytes);
+      expect(html, contains('<tfoot>'));
+      expect(html, contains('>الإجمالي</td>'));
+      expect(html, contains(r'>$21.50</td>'));
+    });
+
+    test('Excel: typed totals row', () async {
+      final bytes = await const ExcelExporter().generateExcel<Item>(
+        sheetName: 'S',
+        columns: _columns,
+        items: _items,
+        valueProviders: _providers,
+        totals: {'price': 21.5},
+      );
+      final sheet = Excel.decodeBytes(bytes).tables.values.first;
+      expect(sheet.maxRows, 4);
+      expect(sheet.row(3)[0]?.value.toString(), 'Total');
+      expect(sheet.row(3)[2]?.value, isA<DoubleCellValue>());
+    });
+
+    test('PDF: generates with a totals row', () async {
+      final bytes = await PdfExporter(font: pw.Font.helvetica())
+          .generatePdf<Item>(
+            title: 'Report',
+            columns: _columns,
+            items: [_items.first],
+            valueProviders: _providers,
+            totals: {'price': '9.5'},
+          );
+      expect(String.fromCharCodes(bytes.sublist(0, 5)), '%PDF-');
+    });
+
+    test('totalsRow places the label only when there is room', () {
+      final cols = ExportUtils.exportableColumns(_columns);
+      expect(ExportUtils.totalsRow(cols, {'price': 1}).labelIndex, 0);
+      expect(ExportUtils.totalsRow(cols, {'id': 1}).labelIndex, -1);
+    });
+  });
+
+  group('Header contrast', () {
+    test('light accents get dark header text', () {
+      expect(ExportUtils.isLightColor(0xFF1565C0), isFalse); // blue 800
+      expect(ExportUtils.isLightColor(0xFF1E88E5), isFalse); // blue 600
+      expect(ExportUtils.isLightColor(0xFF64B5F6), isTrue); // blue 300
+      expect(ExportUtils.isLightColor(0xFF1DE9B6), isTrue); // teal accent
+      expect(ExportUtils.textHexOn('#FFEB3B'), '#000000');
+      expect(ExportUtils.textHexOn('#3949AB'), '#FFFFFF');
+    });
+
+    test('Word header text follows the accent', () async {
+      final bytes = await const WordExporter().generateWord<Item>(
+        title: 'T',
+        columns: _columns,
+        items: _items,
+        valueProviders: _providers,
+        accentColor: '#FFEB3B',
+      );
+      expect(utf8.decode(bytes), contains('color: #000000'));
     });
   });
 }

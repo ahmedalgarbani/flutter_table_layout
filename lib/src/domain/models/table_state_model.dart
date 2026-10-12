@@ -141,6 +141,65 @@ class TableStateModel {
     );
   }
 
+  /// JSON-compatible representation (e.g. to persist the table state).
+  ///
+  /// [customFilters] are written as-is, so their values must be
+  /// JSON-encodable (strings, numbers, booleans, lists, maps).
+  Map<String, Object?> toJson() => {
+    if (searchQuery.isNotEmpty) 'search': searchQuery,
+    if (sorts.isNotEmpty)
+      'sorts': [
+        for (final s in sorts) {'column': s.columnId, 'ascending': s.ascending},
+      ],
+    'page': currentPage,
+    'pageSize': pageSize,
+    if (startDate != null) 'startDate': startDate!.toIso8601String(),
+    if (endDate != null) 'endDate': endDate!.toIso8601String(),
+    if (customFilters.isNotEmpty) 'customFilters': customFilters,
+    if (columnFilters.isNotEmpty) 'columnFilters': columnFilters,
+    if (groupByColumnId != null) 'groupBy': groupByColumnId,
+  };
+
+  /// Reads the output of [toJson]. Unknown or malformed entries are ignored.
+  factory TableStateModel.fromJson(Map<String, Object?> json) {
+    final sorts = <ColumnSort>[
+      if (json['sorts'] case final List<Object?> list)
+        for (final entry in list)
+          if (entry case final Map<Object?, Object?> m
+              when m['column'] is String)
+            ColumnSort(
+              m['column']! as String,
+              ascending: m['ascending'] != false,
+            ),
+    ];
+    DateTime? date(Object? v) => v is String ? DateTime.tryParse(v) : null;
+    return TableStateModel(
+      searchQuery: json['search'] is String ? json['search']! as String : '',
+      sortByColumnId: sorts.isEmpty ? null : sorts.first.columnId,
+      sortAscending: sorts.isEmpty || sorts.first.ascending,
+      additionalSorts: List.unmodifiable(sorts.skip(1)),
+      currentPage: json['page'] is int ? json['page']! as int : 1,
+      pageSize: json['pageSize'] is int ? json['pageSize']! as int : 10,
+      startDate: date(json['startDate']),
+      endDate: date(json['endDate']),
+      customFilters: json['customFilters'] is Map
+          ? UnmodifiableMapView({
+              for (final e in (json['customFilters']! as Map).entries)
+                '${e.key}': e.value,
+            })
+          : const {},
+      columnFilters: json['columnFilters'] is Map
+          ? UnmodifiableMapView({
+              for (final e in (json['columnFilters']! as Map).entries)
+                if (e.value is String) '${e.key}': e.value as String,
+            })
+          : const {},
+      groupByColumnId: json['groupBy'] is String
+          ? json['groupBy']! as String
+          : null,
+    );
+  }
+
   static bool _mapEquals<V>(Map<String, V> a, Map<String, V> b) {
     if (a.length != b.length) return false;
     for (final entry in a.entries) {

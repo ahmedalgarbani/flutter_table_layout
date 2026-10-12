@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.2.0
+
+A full review of 0.1.4: every bug below was first reproduced on 0.1.4, then fixed and covered by a test (226 tests, up from 153).
+
+### Fixes
+* **Keyboard focus was trapped in the grid:** Tab always moved to the next cell, so keyboard users could never leave the table. The rows are now one Tab stop: Tab / Shift+Tab move through the cells and leave the grid after the last one. Reaching the rows with Tab focuses the first cell, and the first arrow press no longer skips it.
+* **Typing in a column filter could change the selection:** once a cell had been clicked, Space, the arrows, Home / End and Ctrl + A typed in a filter field were handled by the grid (Space toggled the row's selection instead of typing a space). Grid shortcuts now only apply while the grid itself has the focus.
+* **An error hid the toolbar and the search box:** after a server (or value provider) error only the Retry button was left, so a search that caused the error could not even be changed. The toolbar, filter bar and footer now stay.
+* **Date presets across daylight-saving changes:** "Yesterday", "Last 7 days" and "Last 30 days" subtracted 24-hour days from local midnight and could start on the wrong day (e.g. 2026-03-03 23:00 instead of 2026-03-04 in New York). They now use calendar days.
+* **"Showing 1–0 of N"** in the footer when every row is shown on one page.
+* **`onSelectionChanged` fired on every data refresh**, even when the selection did not change.
+* **Removed columns kept filtering:** when a column disappeared from `columns`, its column filter, sort level and grouping stayed active, invisibly. They are now dropped (with its width and pin).
+* **`setColumnWidth` / `setColumnWidths` threw** a null check error for an unknown column id.
+* **`AdaptiveTableController` listeners** built before the table showed an empty state until the first change.
+* **Inline editing:** Tab in an editor now jumps to the next *editable* cell (it re-opened the same cell at the end of a row); the editor follows its row when the edited item is replaced by a new instance; a dropdown editor closes when another cell is clicked.
+* **Columns menu:** titles wrapped mid-word ("Curren / cy").
+* **Dynamic forms:** the search dialog of multi-select / relationship fields had English-only texts ("Search...", "No items found", "Cancel", "Save", "Select …") and hard-coded blue colors; it now uses the labels (Arabic included) and the theme accent. It no longer calls `Navigator.pop` inside `setState`.
+* **Exports:** the header text was always white, unreadable on light accent colors (e.g. the dark theme's accent); it is now black or white depending on the color. Word cells follow the column alignment.
+* **Performance:** selection checks were O(rows × selected) on every frame; a parent rebuild re-ran the whole filter / sort pipeline even when nothing had changed (now skipped when the items, columns and functions are unchanged); column filter expressions were re-parsed for every row (now compiled once); Page Up / Down at the first / last page recomputed for nothing.
+* The focus border of a cell stayed after the grid lost focus, and selecting a card changed its border width (a small layout shift).
+
+### New
+* **Arabic-aware search:** `احمد` finds `أحمد`, `مدرسه` finds `مدرسة`, diacritics and tatweel are ignored, `١٢٣` = `123` — in the search box, the column filters and the order of text values. `TableTextNormalizer`, and `textNormalizer` to change it.
+* **The search also matches the displayed text** (`valueFormatter`): `1,500.00`, `05/01/2026`…
+* **Totals row:** `AdaptiveTableColumn.aggregate` (`TableAggregate.sum / average / min / max / count`), `aggregator` for custom totals and `aggregateFormatter`. A sticky row aligned with the columns (frozen ones included), live with the filters, as a panel on phones, and at the end of every export. Server pages can return their totals in `TableDataPage.aggregates`. Also `TableLoaded.aggregates` and `controller.aggregates`.
+* **CSV export:** `ExportFormat.csv` / `CsvExporter` — UTF-8 with BOM (Arabic opens correctly in Excel), RFC 4180 quoting, formula-injection protection, `TableExportOptions.csvDelimiter`.
+* **Copy to clipboard:** Ctrl / Cmd + C copies the selected rows (or the focused cell) as tab-separated text; `controller.copyToClipboard()`.
+* **Row identity:** `rowKey: (row) => row.id` keeps selected and expanded rows across new instances (immutable updates, server reloads) and across server pages.
+* **Save / restore the table state:** `TableSnapshot` (query + hidden / widths / order / frozen columns) with `toJson`, `encode`, `tryDecode`; `initialSnapshot` and `onSnapshotChanged` on the table; `controller.snapshot` / `restoreSnapshot`; `TableStateModel.toJson` / `fromJson`.
+* **"Group by" toolbar menu:** `showGroupingMenu: true`, with `isGroupable` per column.
+* **"Sort by" bar on phones** (cards have no headers): `showCardSortBar`.
+* `tristateSort`: a third header click removes the sort.
+* `density: TableDensity.compact / standard / comfortable` and `AdaptiveTableTheme.withDensity`.
+* `AdaptiveTableTheme.material(context)`: a Material 3 look from the app's `ColorScheme`.
+* An **"All"** rows-per-page option: put `0` in `pageSizes`.
+* Column filters accept thousands separators (`>=1,500`), the Arabic comma `،` and Arabic-Indic digits. `ColumnFilterMatcher.parse` compiles an expression for reuse.
+* Controller: `exportAs`, `printTable`, `copyToClipboard`, `toggleSort`, `resetAll`, `setCollapsedGroups`, `collapseAllRows`, `snapshot`, `restoreSnapshot`, `aggregates`.
+* `TableExportOptions.includeTotals`; new labels (`exportCsv`, `sortBy`, `ascending`, `descending`, `noSorting`, `total`, `sum`, `average`, `minimum`, `maximum`, `count`, `allRows`, `save`, `noMatches`, `selectPlaceholder`, `copied`) in English and Arabic.
+
+### Design
+* Column headers stay on empty desktop tables (with the filter row), and loading skeleton rows sit under the real headers, aligned with the column widths.
+* Sort arrows only show on sorted columns; the others appear on hover.
+* Cards: the title is the first column showing text (no more "1" as a card title) and the subtitle the next column.
+* The example app shows every new feature (totals, group-by menu, density, Material 3, persistence across a language switch) and the screenshots were regenerated.
+
+### Behaviour changes
+* `ExportFormat` has a new value, `csv` (add a case to exhaustive `switch`es), and CSV is in the default export menu.
+* `FilterItemsUseCase` folds Arabic text by default; pass `FilterItemsUseCase(textNormalizer: TableTextNormalizer.caseInsensitive)` (or `textNormalizer:` on the table) for the previous matching.
+* `TableCubit.updateConfiguration` only recomputes what changed; call `refresh()` to force a run.
+* The card title / subtitle defaults and the desktop empty / loading look changed (see Design).
+
 ## 0.1.4
 
 ### Skeleton / shimmer loading (new)

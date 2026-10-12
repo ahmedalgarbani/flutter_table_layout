@@ -10,12 +10,17 @@ import '../../core/theme.dart';
 import '../../data/exporters/table_export_options.dart';
 import '../../domain/datasource/table_data_source.dart';
 import '../../domain/models/column_definition.dart';
+import '../../domain/models/table_aggregate.dart';
+import '../../domain/models/table_snapshot.dart';
 import '../../domain/models/table_state_model.dart';
+import '../../domain/usecases/filter_items_usecase.dart';
+import '../../domain/utils/table_text_normalizer.dart';
 import '../controller/adaptive_table_controller.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
+import '../export/table_export_runner.dart';
+import 'adaptive_table_column.dart';
 import 'date_range/date_range_preset.dart';
-import 'grid/cell_editor.dart';
 import 'grid/table_entries.dart';
 import 'skeleton/table_skeleton.dart';
 import 'table_content.dart';
@@ -23,8 +28,9 @@ import 'table_filter_bar.dart';
 import 'table_footer.dart';
 import 'table_header.dart';
 
-/// Alignment helper maps.
-typedef AdaptiveTableColumnAlignment = TableColumnAlignment;
+export '../export/table_export_runner.dart'
+    show TableExportCallback, TablePrintCallback;
+export 'adaptive_table_column.dart';
 
 /// How rows are rendered.
 enum TableLayoutMode {
@@ -38,12 +44,6 @@ enum TableLayoutMode {
   cards,
 }
 
-/// Replaces the built-in export for a format. Receives the rows the table
-/// would export (selected rows if any, otherwise all filtered rows, in the
-/// current sort order).
-typedef TableExportCallback<T> =
-    Future<void> Function(ExportFormat format, List<T> rows);
-
 /// Called after an inline cell edit. Update your data (e.g. replace the
 /// item in `items` and call `setState`). Return `false` to reject the value
 /// (the editor stays open), or throw to show the error.
@@ -56,95 +56,6 @@ typedef CanEditCell<T> = bool Function(T item, String columnId);
 /// Extra content of a group header row (aggregates, actions…).
 typedef GroupHeaderBuilder<T> =
     Widget Function(BuildContext context, TableGroupInfo<T> group);
-
-/// Replaces the built-in print action.
-typedef TablePrintCallback<T> = Future<void> Function(List<T> rows);
-
-/// Converts a raw cell value into the text shown in the table and written to
-/// PDF / Word exports.
-typedef CellValueFormatter = String Function(dynamic value);
-
-/// Column configuration combining structural definitions and Flutter widget builders.
-class AdaptiveTableColumn<T> {
-  final ColumnDefinition definition;
-
-  /// Custom cell widget. When `null`, the column's `valueProvider` value is
-  /// shown as text (formatted by [valueFormatter]).
-  final Widget Function(BuildContext context, T item)? cellBuilder;
-
-  /// Custom header widget replacing the [title] text.
-  final Widget Function(BuildContext context)? headerBuilder;
-
-  /// Formats the raw value for the default text cell, mobile cards, and
-  /// PDF / Word exports (Excel keeps the raw typed value).
-  final CellValueFormatter? valueFormatter;
-
-  /// Inline editor of this column (when `isEditable`). Inferred from the
-  /// value type when `null`.
-  final CellEditor? editor;
-
-  /// Validates an inline edit before `onCellEdited` is called. Return an
-  /// error message to keep the editor open.
-  final String? Function(dynamic value)? cellValidator;
-
-  AdaptiveTableColumn({
-    required String id,
-    required String title,
-    String? fieldName,
-    bool isSortable = true,
-    bool isVisible = true,
-    bool isSearchable = true,
-    bool isExportable = true,
-    bool isHideable = true,
-    bool isFilterable = true,
-    bool isResizable = true,
-    bool isEditable = false,
-    ColumnPin pin = ColumnPin.none,
-    double? width,
-    double minWidth = 60,
-    int flex = 1,
-    AdaptiveTableColumnAlignment alignment = AdaptiveTableColumnAlignment.start,
-    this.cellBuilder,
-    this.headerBuilder,
-    this.valueFormatter,
-    this.editor,
-    this.cellValidator,
-  }) : definition = ColumnDefinition(
-         id: id,
-         title: title,
-         fieldName: fieldName,
-         isSortable: isSortable,
-         isVisible: isVisible,
-         isSearchable: isSearchable,
-         isExportable: isExportable,
-         isHideable: isHideable,
-         isFilterable: isFilterable,
-         isResizable: isResizable,
-         isEditable: isEditable,
-         pin: pin,
-         width: width,
-         minWidth: minWidth,
-         flex: flex,
-         alignment: alignment,
-       );
-
-  String get id => definition.id;
-  String get title => definition.title;
-  String get fieldName => definition.fieldName;
-  bool get isSortable => definition.isSortable;
-  bool get isVisible => definition.isVisible;
-  bool get isSearchable => definition.isSearchable;
-  bool get isExportable => definition.isExportable;
-  bool get isHideable => definition.isHideable;
-  bool get isFilterable => definition.isFilterable;
-  bool get isResizable => definition.isResizable;
-  bool get isEditable => definition.isEditable;
-  ColumnPin get pin => definition.pin;
-  double get minWidth => definition.minWidth;
-  double? get width => definition.width;
-  int get flex => definition.flex;
-  AdaptiveTableColumnAlignment get alignment => definition.alignment;
-}
 
 /// The main entry point widget. Orchestrates header toolbars, advanced date inputs,
 /// responsive horizontal data grid, and page controllers.
@@ -168,8 +79,15 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Optional custom filter matcher for custom widget filter values.
   final bool Function(T, Map<String, dynamic>)? customFilterMatcher;
 
-  /// Drives the table from outside (search, filters, selection…).
+  /// Drives the table from outside (search, filters, selection, export…).
   final AdaptiveTableController<T>? controller;
+
+  /// Identifies a row across data updates, e.g. `(invoice) => invoice.id`.
+  ///
+  /// Selected and expanded rows are matched by this key instead of `==`, so
+  /// they survive new item instances (immutable `copyWith` updates, server
+  /// reloads) and stay selected across server pages.
+  final RowKeyBuilder<T>? rowKey;
 
   /// Enables global text search box.
   final bool showSearch;
@@ -180,7 +98,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Enables row selection checkbox column.
   final bool showSelection;
 
-  /// Enables export formats (Excel, Word, PDF).
+  /// Enables export formats (Excel, CSV, Word, PDF).
   final bool showExport;
 
   /// Enables direct PDF printing action.
@@ -188,6 +106,10 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
 
   /// Enables column toggle visibility checkboxes.
   final bool showColumnsToggle;
+
+  /// Shows a "Group by" menu in the toolbar, listing the columns declared
+  /// with `isGroupable: true` (the default) that have a value provider.
+  final bool showGroupingMenu;
 
   /// Enables pagination footer. When `false`, every row is rendered.
   final bool showPagination;
@@ -199,11 +121,16 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// active.
   final bool showClearFilters;
 
-  /// Pagination size options, defaults to `[5, 10, 20, 50]`.
+  /// Shows a "Sort by" selector above the cards (phones have no column
+  /// headers to click).
+  final bool showCardSortBar;
+
+  /// Pagination size options, defaults to `[5, 10, 20, 50]`. A value `<= 0`
+  /// adds an "All" option.
   final List<int> pageSizes;
 
   /// Initial rows per page. Defaults to 10 when it's in [pageSizes],
-  /// otherwise the first entry of [pageSizes].
+  /// otherwise the first entry of [pageSizes]. `0` shows every row.
   final int? initialPageSize;
 
   /// Column sorted on first build.
@@ -211,6 +138,20 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
 
   /// Direction of [initialSortColumnId].
   final bool initialSortAscending;
+
+  /// A third click on a sorted column header removes its sort
+  /// (ascending → descending → unsorted).
+  final bool tristateSort;
+
+  /// Restores a query and column layout saved from [onSnapshotChanged] (e.g.
+  /// from the previous visit). Wins over [initialSortColumnId],
+  /// [initialPageSize] and [groupByColumnId].
+  final TableSnapshot? initialSnapshot;
+
+  /// Called whenever the query (search, filters, sort, page, grouping) or
+  /// the column layout (hidden, widths, order, frozen) changes. Persist the
+  /// snapshot (`snapshot.encode()`) and pass it back as [initialSnapshot].
+  final ValueChanged<TableSnapshot>? onSnapshotChanged;
 
   /// Widget builder to aggregate totals in the bottom summary row.
   /// Receives every filtered row (all pages).
@@ -250,6 +191,10 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
 
   /// Styling decoration overrides. Defaults to [AdaptiveTableTheme.of].
   final AdaptiveTableTheme? theme;
+
+  /// Vertical spacing of grid rows and column headers, applied on top of
+  /// [theme].
+  final TableDensity density;
 
   /// Every user-facing string. Defaults to [AdaptiveTableLabels.of].
   final AdaptiveTableLabels? labels;
@@ -295,7 +240,8 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   final bool allowColumnReorder;
 
   /// Arrow keys, Enter / F2 (edit), Space (select), Tab, Home / End,
-  /// Page Up / Down, Ctrl + A, Escape (desktop grid).
+  /// Page Up / Down, Ctrl + A (select all), Ctrl + C (copy), Escape
+  /// (desktop grid).
   final bool enableKeyboardNavigation;
 
   /// Groups rows by this column initially.
@@ -329,10 +275,12 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Per-row background override (return `null` for the default).
   final Color? Function(T item)? rowColorBuilder;
 
-  /// Column used as card title on mobile. Defaults to the first visible column.
+  /// Column used as card title on mobile. Defaults to the first visible
+  /// column showing text (so an id / number column is skipped).
   final String? mobileTitleColumnId;
 
-  /// Column used as card subtitle on mobile. Defaults to the second visible column.
+  /// Column used as card subtitle on mobile. Defaults to the visible column
+  /// after the title.
   final String? mobileSubtitleColumnId;
 
   /// Localized search placeholder. Overrides [labels].
@@ -349,6 +297,12 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
 
   /// Delay before a search keystroke is applied.
   final Duration searchDebounce;
+
+  /// How text is compared by the search and the column filters. The default
+  /// is case-insensitive and tolerant of Arabic spelling variants
+  /// (`أحمد` = `احمد`, `مدرسة` = `مدرسه`, `١٢٣` = `123`); use
+  /// [TableTextNormalizer.caseInsensitive] for plain matching. Read once.
+  final TextNormalizer textNormalizer;
 
   /// Date filter look: one "Period" button with presets and a range calendar
   /// (default) or the legacy separate From / To buttons.
@@ -394,19 +348,25 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.dateProvider,
     this.customFilterMatcher,
     this.controller,
+    this.rowKey,
     this.showSearch = true,
     this.showDateFilter,
     this.showSelection = true,
     this.showExport = true,
     this.showPrint = true,
     this.showColumnsToggle = true,
+    this.showGroupingMenu = false,
     this.showPagination = true,
     this.showSummary = true,
     this.showClearFilters = true,
+    this.showCardSortBar = true,
     this.pageSizes = const [5, 10, 20, 50],
     this.initialPageSize,
     this.initialSortColumnId,
     this.initialSortAscending = true,
+    this.tristateSort = false,
+    this.initialSnapshot,
+    this.onSnapshotChanged,
     this.summaryBuilder,
     this.expandedRowBuilder,
     this.title,
@@ -418,6 +378,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.onAddNewPressed,
     this.onQueryPressed,
     this.theme,
+    this.density = TableDensity.standard,
     this.labels,
     this.minDesktopWidth = 800,
     this.mobileBreakpoint = 600,
@@ -448,6 +409,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.dateToLabel,
     this.queryButtonLabel,
     this.searchDebounce = const Duration(milliseconds: 250),
+    this.textNormalizer = TableTextNormalizer.normalize,
     this.firstDate,
     this.lastDate,
     this.dateFilterStyle = DateFilterStyle.rangePicker,
@@ -468,11 +430,18 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
   late TableCubit<T> _cubit;
   List<T>? _lastSelection;
   TableStateModel? _lastTableState;
+  TableSnapshot? _lastSnapshot;
+  Map<String, TableAggregator<T>> _aggregators = const {};
+
+  /// Built-in aggregators by column id, reused while the aggregate and its
+  /// value provider stay the same (so the cubit can skip recomputing them).
+  final Map<String, (TableAggregate, Function, TableAggregator<T>)>
+  _aggregatorCache = {};
 
   int get _effectivePageSize {
     if (!widget.showPagination) return 0;
     final initial = widget.initialPageSize;
-    if (initial != null && initial > 0) return initial;
+    if (initial != null) return initial;
     return widget.pageSizes.contains(10) ? 10 : widget.pageSizes.first;
   }
 
@@ -489,15 +458,53 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
   List<ColumnDefinition> get _definitions =>
       widget.columns.map((c) => c.definition).toList();
 
+  Map<String, DisplayFormatter> get _displayFormatters => {
+    for (final c in widget.columns)
+      if (c.valueFormatter != null) c.id: c.valueFormatter!,
+  };
+
+  Map<String, TableAggregator<T>> _buildAggregators() {
+    final result = <String, TableAggregator<T>>{};
+    for (final c in widget.columns) {
+      final custom = c.aggregator;
+      if (custom != null) {
+        result[c.id] = custom;
+        continue;
+      }
+      final type = c.aggregate;
+      final provider = widget.valueProviders[c.id];
+      if (type == null || provider == null) continue;
+      final cached = _aggregatorCache[c.id];
+      if (cached != null && cached.$1 == type && cached.$2 == provider) {
+        result[c.id] = cached.$3;
+        continue;
+      }
+      Object? aggregate(List<T> rows) =>
+          type.compute(rows.map((r) => provider(r) as Object?));
+      _aggregatorCache[c.id] = (type, provider, aggregate);
+      result[c.id] = aggregate;
+    }
+    return result;
+  }
+
+  /// The initial snapshot with the page size forced off when pagination is.
+  TableSnapshot? get _initialSnapshot {
+    final s = widget.initialSnapshot;
+    if (s == null || widget.showPagination) return s;
+    return s.copyWith(tableState: s.tableState.copyWith(pageSize: 0));
+  }
+
   @override
   void initState() {
     super.initState();
+    _aggregators = _buildAggregators();
     _cubit = TableCubit<T>(
       items: widget.items,
       columns: _definitions,
       valueProviders: widget.valueProviders,
       dateProvider: widget.dateProvider,
       customFilterMatcher: widget.customFilterMatcher,
+      filterUseCase: FilterItemsUseCase(textNormalizer: widget.textNormalizer),
       initialTableState: TableStateModel(
         pageSize: _effectivePageSize,
         sortByColumnId: widget.initialSortColumnId,
@@ -505,10 +512,15 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
         groupByColumnId: widget.groupByColumnId,
       ),
       dataSource: widget.dataSource,
+      rowKey: widget.rowKey,
+      displayFormatters: _displayFormatters,
+      aggregators: _aggregators,
+      initialSnapshot: _initialSnapshot,
     );
     widget.controller?.attach(_cubit);
     _lastSelection = _cubit.selectedItems;
     _lastTableState = _cubit.tableState;
+    _lastSnapshot = _cubit.snapshot;
   }
 
   @override
@@ -520,22 +532,23 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       widget.controller?.attach(_cubit);
     }
 
-    final newDefs = _definitions;
-    final columnsChanged = !listEquals(newDefs, _cubit.columns);
-    final itemsChanged = !listEquals(widget.items, _cubit.items);
-
-    // Providers are usually closures recreated on every build, so they are
-    // always refreshed; one recompute covers items + configuration.
+    // The cubit only recomputes what actually changed (items by content,
+    // columns by value, functions by identity).
+    _aggregators = _buildAggregators();
     _cubit.updateConfiguration(
-      columns: columnsChanged ? newDefs : null,
+      columns: _definitions,
       valueProviders: widget.valueProviders,
       dateProvider: widget.dateProvider,
       clearDateProvider: widget.dateProvider == null,
       customFilterMatcher: widget.customFilterMatcher,
       clearCustomFilterMatcher: widget.customFilterMatcher == null,
-      items: itemsChanged ? widget.items : null,
+      items: widget.items,
       dataSource: widget.dataSource,
       clearDataSource: widget.dataSource == null,
+      displayFormatters: _displayFormatters,
+      aggregators: _aggregators,
+      rowKey: widget.rowKey,
+      clearRowKey: widget.rowKey == null,
     );
 
     if (widget.groupByColumnId != oldWidget.groupByColumnId) {
@@ -577,8 +590,53 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
     );
   }
 
+  /// Lets the controller export / print / copy like the toolbar does.
+  void _bindControllerActions(TableExportRunner<T> runner) {
+    TableLoaded<T>? loaded() {
+      final s = _cubit.state;
+      return mounted && s is TableLoaded<T> ? s : null;
+    }
+
+    bool rtl() => Directionality.of(context) == TextDirection.rtl;
+
+    widget.controller?.bindActions(
+      export: (format, rows) async {
+        final state = loaded();
+        if (state == null) return;
+        await runner.export(
+          format,
+          state: state,
+          isRtl: rtl(),
+          messenger: ScaffoldMessenger.maybeOf(context),
+          rows: rows,
+        );
+      },
+      print: (rows) async {
+        final state = loaded();
+        if (state == null) return;
+        await runner.printTable(
+          state: state,
+          isRtl: rtl(),
+          messenger: ScaffoldMessenger.maybeOf(context),
+          rows: rows,
+        );
+      },
+      copy: (rows) async {
+        final state = loaded();
+        if (state == null) return 0;
+        return runner.copyRows(
+          state: state,
+          messenger: ScaffoldMessenger.maybeOf(context),
+          rows: rows,
+        );
+      },
+    );
+  }
+
   Widget _buildTable(BuildContext context, {required bool fill}) {
-    final theme = widget.theme ?? AdaptiveTableTheme.of(context);
+    final theme = (widget.theme ?? AdaptiveTableTheme.of(context)).withDensity(
+      widget.density,
+    );
     final baseLabels = widget.labels ?? AdaptiveTableLabels.of(context);
     final labels = baseLabels.copyWith(
       search: widget.searchHint,
@@ -586,6 +644,21 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       dateTo: widget.dateToLabel,
       query: widget.queryButtonLabel,
     );
+
+    final runner = TableExportRunner<T>(
+      columns: widget.columns,
+      valueProviders: widget.valueProviders,
+      aggregators: _aggregators,
+      options: widget.exportOptions,
+      theme: theme,
+      labels: labels,
+      title: widget.title,
+      subtitle: widget.subtitle,
+      onExportRequested: widget.onExportRequested,
+      onPrintRequested: widget.onPrintRequested,
+      isRemote: widget.dataSource != null,
+    );
+    _bindControllerActions(runner);
 
     Widget content = TableContent<T>(
       columns: widget.columns,
@@ -608,10 +681,13 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       allowColumnResize: widget.allowColumnResize,
       allowColumnReorder: widget.allowColumnReorder,
       enableKeyboardNavigation: widget.enableKeyboardNavigation,
+      tristateSort: widget.tristateSort,
+      showCardSortBar: widget.showCardSortBar,
       onCellEdited: widget.onCellEdited,
       canEditCell: widget.canEditCell,
       groupHeaderBuilder: widget.groupHeaderBuilder,
       minRowHeight: widget.minRowHeight,
+      exportRunner: runner,
       theme: theme,
       labels: labels,
     );
@@ -637,11 +713,10 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
           showExport: widget.showExport,
           showPrint: widget.showPrint,
           showColumnsToggle: widget.showColumnsToggle,
+          showGroupingMenu: widget.showGroupingMenu,
           toolbarActions: widget.toolbarActions,
-          exportOptions: widget.exportOptions,
+          exportRunner: runner,
           mobileBreakpoint: _chromeCompactWidth,
-          onExportRequested: widget.onExportRequested,
-          onPrintRequested: widget.onPrintRequested,
           theme: theme,
           labels: labels,
         ),
@@ -721,13 +796,23 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
         listenWhen: (prev, next) => next is TableLoaded<T>,
         listener: (context, state) {
           if (state is! TableLoaded<T>) return;
-          if (!identical(_lastSelection, state.selectedItems)) {
+          // Compared by content: refreshed item lists don't count as a
+          // selection change.
+          if (!listEquals(_lastSelection, state.selectedItems)) {
             _lastSelection = state.selectedItems;
             widget.onSelectionChanged?.call(state.selectedItems);
           }
           if (_lastTableState != state.tableState) {
             _lastTableState = state.tableState;
             widget.onTableStateChanged?.call(state.tableState);
+          }
+          final onSnapshot = widget.onSnapshotChanged;
+          if (onSnapshot != null) {
+            final snapshot = state.snapshot;
+            if (snapshot != _lastSnapshot) {
+              _lastSnapshot = snapshot;
+              onSnapshot(snapshot);
+            }
           }
         },
         child: Padding(padding: theme.cardMargin, child: card),

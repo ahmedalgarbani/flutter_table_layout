@@ -417,7 +417,7 @@ class _DynamicFormState extends State<DynamicForm> {
         Expanded(child: child),
         const SizedBox(width: 8),
         IconButton(
-          icon: const Icon(Icons.add_circle, color: Colors.blue),
+          icon: Icon(Icons.add_circle, color: _theme.accentColor),
           tooltip: '${_labels.addNew} ${field.label}',
           onPressed: () async {
             final newValue = await field.onAddInstance!(context);
@@ -552,6 +552,7 @@ class _DynamicFormState extends State<DynamicForm> {
                       initialSelected: currentValues,
                       isMultiSelect: true,
                       theme: _theme,
+                      labels: _labels,
                       onAddInstance: field.onAddInstance,
                     ),
                   );
@@ -572,10 +573,8 @@ class _DynamicFormState extends State<DynamicForm> {
             ),
             child: currentValues.isEmpty
                 ? Text(
-                    'Select ${field.label}...',
-                    style: _theme.rowTextStyle.copyWith(
-                      color: Colors.grey.shade500,
-                    ),
+                    _labels.selectPlaceholder(field.label),
+                    style: _theme.footerTextStyle.copyWith(fontSize: 14),
                   )
                 : _buildChips(currentValues, (val) {
                     state.didChange(
@@ -633,6 +632,7 @@ class _DynamicFormState extends State<DynamicForm> {
                           initialSelected: currentValues,
                           isMultiSelect: true,
                           theme: _theme,
+                          labels: _labels,
                           onAddInstance: field.onAddInstance,
                         ),
                       );
@@ -655,10 +655,8 @@ class _DynamicFormState extends State<DynamicForm> {
               ),
               child: currentValues.isEmpty
                   ? Text(
-                      'Select ${field.label}...',
-                      style: _theme.rowTextStyle.copyWith(
-                        color: Colors.grey.shade500,
-                      ),
+                      _labels.selectPlaceholder(field.label),
+                      style: _theme.footerTextStyle.copyWith(fontSize: 14),
                     )
                   : _buildChips(currentValues, (val) {
                       state.didChange(
@@ -711,6 +709,7 @@ class _DynamicFormState extends State<DynamicForm> {
                         initialSelected: [?currentValue],
                         isMultiSelect: false,
                         theme: _theme,
+                        labels: _labels,
                         onAddInstance: field.onAddInstance,
                       ),
                     );
@@ -731,10 +730,8 @@ class _DynamicFormState extends State<DynamicForm> {
             ),
             child: currentValue == null || currentValue.isEmpty
                 ? Text(
-                    'Select ${field.label}...',
-                    style: _theme.rowTextStyle.copyWith(
-                      color: Colors.grey.shade500,
-                    ),
+                    _labels.selectPlaceholder(field.label),
+                    style: _theme.footerTextStyle.copyWith(fontSize: 14),
                   )
                 : Text(currentValue, style: _theme.rowTextStyle),
           ),
@@ -901,6 +898,9 @@ class SearchSelectDialog extends StatefulWidget {
   final List<String> initialSelected;
   final bool isMultiSelect;
   final AdaptiveTableTheme theme;
+
+  /// Defaults to [AdaptiveTableLabels.of].
+  final AdaptiveTableLabels? labels;
   final Future<String?> Function(BuildContext)? onAddInstance;
 
   const SearchSelectDialog({
@@ -910,6 +910,7 @@ class SearchSelectDialog extends StatefulWidget {
     required this.initialSelected,
     required this.isMultiSelect,
     required this.theme,
+    this.labels,
     this.onAddInstance,
   });
 
@@ -947,22 +948,20 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
   Future<void> _addInstance() async {
     final newItem = await widget.onAddInstance!(context);
     if (newItem == null || newItem.isEmpty || !mounted) return;
+    if (!widget.isMultiSelect) {
+      Navigator.of(context).pop([newItem]);
+      return;
+    }
     setState(() {
       if (!_localItems.contains(newItem)) _localItems.add(newItem);
-      if (widget.isMultiSelect) {
-        _selectedItems.add(newItem);
-      } else {
-        _selectedItems
-          ..clear()
-          ..add(newItem);
-        Navigator.of(context).pop(_selectedItems.toList());
-      }
+      _selectedItems.add(newItem);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
+    final labels = widget.labels ?? AdaptiveTableLabels.of(context);
     final filtered = _filteredItems;
 
     return Dialog(
@@ -991,7 +990,7 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                       controller: _searchController,
                       style: theme.rowTextStyle,
                       decoration: InputDecoration(
-                        hintText: 'Search...',
+                        hintText: labels.search,
                         hintStyle: theme.footerTextStyle.copyWith(fontSize: 13),
                         prefixIcon: Icon(
                           Icons.search,
@@ -1012,7 +1011,8 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                   if (widget.onAddInstance != null) ...[
                     const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.add_circle, color: Colors.blue),
+                      icon: Icon(Icons.add_circle, color: theme.accentColor),
+                      tooltip: labels.addNew,
                       onPressed: _addInstance,
                     ),
                   ],
@@ -1023,10 +1023,8 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                 child: filtered.isEmpty
                     ? Center(
                         child: Text(
-                          'No items found',
-                          style: theme.rowTextStyle.copyWith(
-                            color: Colors.grey,
-                          ),
+                          labels.noMatches,
+                          style: theme.footerTextStyle.copyWith(fontSize: 14),
                         ),
                       )
                     : ListView.builder(
@@ -1038,7 +1036,8 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                             return CheckboxListTile(
                               title: Text(item, style: theme.rowTextStyle),
                               value: isSelected,
-                              activeColor: Colors.blue.shade600,
+                              activeColor: theme.accentColor,
+                              checkColor: theme.onAccentColor,
                               onChanged: (val) => setState(() {
                                 if (val == true) {
                                   _selectedItems.add(item);
@@ -1058,7 +1057,7 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                             child: RadioListTile<String>(
                               title: Text(item, style: theme.rowTextStyle),
                               value: item,
-                              activeColor: Colors.blue.shade600,
+                              activeColor: theme.accentColor,
                             ),
                           );
                         },
@@ -1070,24 +1069,24 @@ class _SearchSelectDialogState extends State<SearchSelectDialog> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(color: Colors.grey),
+                    child: Text(
+                      labels.cancel,
+                      style: TextStyle(color: theme.footerTextStyle.color),
                     ),
                   ),
                   if (widget.isMultiSelect) ...[
                     const SizedBox(width: 8),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.shade600,
-                        foregroundColor: Colors.white,
+                        backgroundColor: theme.accentColor,
+                        foregroundColor: theme.onAccentColor,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       onPressed: () =>
                           Navigator.of(context).pop(_selectedItems.toList()),
-                      child: const Text('Save'),
+                      child: Text(labels.save),
                     ),
                   ],
                 ],

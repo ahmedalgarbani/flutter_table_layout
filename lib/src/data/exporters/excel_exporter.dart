@@ -17,7 +17,10 @@ class ExcelExporter {
   ///
   /// * [hiddenColumnIds] – columns hidden by the user, skipped in the output.
   /// * [isRtl] – mirrors the sheet (right-to-left) for Arabic content.
-  /// * [headerColor] – header background as `#RRGGBB`.
+  /// * [headerColor] – header background as `#RRGGBB`; the header text is
+  ///   black or white, whichever reads better on it.
+  /// * [totals] – adds a bold last row with the column totals (typed values),
+  ///   and [totalsLabel] in the first column when it has no total.
   Future<Uint8List> generateExcel<T>({
     required String sheetName,
     required List<ColumnDefinition> columns,
@@ -26,6 +29,8 @@ class ExcelExporter {
     Iterable<String> hiddenColumnIds = const [],
     bool isRtl = false,
     String headerColor = '#1565C0',
+    Map<String, Object?>? totals,
+    String totalsLabel = 'Total',
   }) async {
     final excel = Excel.createExcel();
     final safeName = sanitizeSheetName(sheetName);
@@ -44,10 +49,13 @@ class ExcelExporter {
 
     // 1. Header row
     sheet.appendRow(visibleCols.map((c) => TextCellValue(c.title)).toList());
+    final headerArgb = _toArgbHex(headerColor);
     final headerStyle = CellStyle(
       bold: true,
-      backgroundColorHex: ExcelColor.fromHexString(_toArgbHex(headerColor)),
-      fontColorHex: ExcelColor.white,
+      backgroundColorHex: ExcelColor.fromHexString(headerArgb),
+      fontColorHex: ExportUtils.isLightColor(int.parse(headerArgb, radix: 16))
+          ? ExcelColor.black
+          : ExcelColor.white,
       horizontalAlign: HorizontalAlign.Center,
       verticalAlign: VerticalAlign.Center,
     );
@@ -72,6 +80,30 @@ class ExcelExporter {
         );
       }
       sheet.appendRow(row);
+    }
+
+    // 3. Totals row
+    if (totals != null && totals.isNotEmpty) {
+      final totalsRow = ExportUtils.totalsRow(visibleCols, totals);
+      sheet.appendRow([
+        for (var i = 0; i < visibleCols.length; i++)
+          i == totalsRow.labelIndex
+              ? TextCellValue(totalsLabel)
+              : mapToCellValue(totalsRow.values[i]),
+      ]);
+      final rowIndex = items.length + 1;
+      final totalStyle = CellStyle(bold: true);
+      for (var i = 0; i < visibleCols.length; i++) {
+        sheet
+                .cell(
+                  CellIndex.indexByColumnRow(
+                    columnIndex: i,
+                    rowIndex: rowIndex,
+                  ),
+                )
+                .cellStyle =
+            totalStyle;
+      }
     }
 
     for (var i = 0; i < visibleCols.length; i++) {

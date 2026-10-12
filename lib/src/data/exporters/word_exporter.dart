@@ -13,6 +13,9 @@ class WordExporter {
   const WordExporter();
 
   /// Generates the raw document bytes containing HTML.
+  ///
+  /// [totals] (column id → value, already formatted or raw) adds a bold
+  /// totals row, with [totalsLabel] in the first column when it has no total.
   Future<Uint8List> generateWord<T>({
     required String title,
     String? subtitle,
@@ -24,6 +27,8 @@ class WordExporter {
     Map<String, ExportValueFormatter>? formatters,
     String exportedOnLabel = 'Exported',
     String accentColor = '#1565C0',
+    Map<String, Object?>? totals,
+    String totalsLabel = 'Total',
   }) async {
     final esc = ExportUtils.escapeHtml;
     final visibleCols = ExportUtils.exportableColumns(
@@ -32,6 +37,12 @@ class WordExporter {
     );
     final dir = isRtl ? 'rtl' : 'ltr';
     final align = isRtl ? 'right' : 'left';
+    final headerText = ExportUtils.textHexOn(accentColor);
+    String cellAlign(TableColumnAlignment a) => switch (a) {
+      TableColumnAlignment.start => align,
+      TableColumnAlignment.center => 'center',
+      TableColumnAlignment.end => isRtl ? 'left' : 'right',
+    };
 
     final buffer = StringBuffer()
       ..write('''
@@ -48,9 +59,10 @@ class WordExporter {
     h1 { color: $accentColor; font-size: 24px; margin: 0 0 5px 0; }
     h2 { color: #555555; font-size: 14px; margin: 0 0 15px 0; font-weight: normal; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; direction: $dir; }
-    th { background-color: $accentColor; color: white; padding: 12px 10px; border: 1px solid #E0E0E0; text-align: $align; font-weight: bold; }
+    th { background-color: $accentColor; color: $headerText; padding: 12px 10px; border: 1px solid #E0E0E0; text-align: $align; font-weight: bold; }
     td { padding: 10px; border: 1px solid #E0E0E0; text-align: $align; color: #333333; }
     tr:nth-child(even) { background-color: #F5F5F5; }
+    tfoot td { font-weight: bold; background-color: #EEEEEE; border-top: 2px solid #9E9E9E; }
   </style>
 </head>
 <body>
@@ -68,7 +80,10 @@ class WordExporter {
       ..write('  </div>\n  <table>\n    <thead>\n      <tr>\n');
 
     for (final col in visibleCols) {
-      buffer.write('        <th>${esc(col.title)}</th>\n');
+      buffer.write(
+        '        <th style="text-align: ${cellAlign(col.alignment)}">'
+        '${esc(col.title)}</th>\n',
+      );
     }
     buffer.write('      </tr>\n    </thead>\n    <tbody>\n');
 
@@ -77,12 +92,29 @@ class WordExporter {
       for (final col in visibleCols) {
         final raw = valueProviders[col.id]?.call(item);
         final text = (formatters?[col.id] ?? ExportUtils.formatValue)(raw);
-        buffer.write('        <td>${esc(text)}</td>\n');
+        buffer.write(_td(text, cellAlign(col.alignment)));
       }
       buffer.write('      </tr>\n');
     }
+    buffer.write('    </tbody>\n');
 
-    buffer.write('    </tbody>\n  </table>\n</body>\n</html>\n');
+    if (totals != null && totals.isNotEmpty) {
+      final t = ExportUtils.totalsRow(visibleCols, totals);
+      buffer.write('    <tfoot>\n      <tr>\n');
+      for (var i = 0; i < visibleCols.length; i++) {
+        final text = i == t.labelIndex
+            ? totalsLabel
+            : ExportUtils.formatValue(t.values[i]);
+        buffer.write(_td(text, cellAlign(visibleCols[i].alignment)));
+      }
+      buffer.write('      </tr>\n    </tfoot>\n');
+    }
+
+    buffer.write('  </table>\n</body>\n</html>\n');
     return Uint8List.fromList(utf8.encode(buffer.toString()));
   }
+
+  static String _td(String text, String align) =>
+      '        <td style="text-align: $align">'
+      '${ExportUtils.escapeHtml(text)}</td>\n';
 }

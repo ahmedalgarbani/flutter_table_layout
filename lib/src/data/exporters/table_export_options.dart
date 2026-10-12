@@ -10,7 +10,10 @@ enum ExportFormat {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ),
   word('doc', 'application/msword'),
-  pdf('pdf', 'application/pdf');
+  pdf('pdf', 'application/pdf'),
+
+  /// UTF-8 CSV with a byte-order mark, so Excel opens Arabic text correctly.
+  csv('csv', 'text/csv');
 
   const ExportFormat(this.extension, this.mimeType);
 
@@ -54,10 +57,18 @@ class TableExportOptions {
   /// Replaces the default "save / share / download" behaviour.
   final ExportHandler? onExport;
 
+  /// Appends the totals row (columns with an `aggregate`) to exports.
+  final bool includeTotals;
+
+  /// Field separator of CSV files (`;` suits locales whose decimal
+  /// separator is a comma).
+  final String csvDelimiter;
+
   const TableExportOptions({
     this.fileName,
     this.formats = const {
       ExportFormat.excel,
+      ExportFormat.csv,
       ExportFormat.word,
       ExportFormat.pdf,
     },
@@ -66,5 +77,7 @@ class TableExportOptions {
     this.pdfBoldFont,
     this.pdfPageFormat,
     this.onExport,
+    this.includeTotals = true,
+    this.csvDelimiter = ',',
   });
 }

@@ -136,7 +136,8 @@ void main() {
       pixelRatio: 2,
       locale: const Locale('ar', 'YE'),
       interact: (t) async {
-        await t.tap(find.byIcon(Icons.expand_more).first);
+        // The card's own expand button (not the Period button's arrow).
+        await t.tap(find.byTooltip('توسيع').first);
       },
     );
   });
@@ -154,6 +155,7 @@ void main() {
   });
 
   for (final style in [
+    DemoThemeStyle.material,
     DemoThemeStyle.glassmorphic,
     DemoThemeStyle.gradient,
     DemoThemeStyle.cozy,
@@ -218,7 +220,7 @@ void main() {
                   w is Text &&
                   RegExp(r'^\d{1,3}(,\d{3})*\.00$').hasMatch(w.data ?? ''),
             )
-            .at(1);
+            .first; // an active employee: inactive ones can't be edited
         await t.tap(salary);
         await t.pump(const Duration(milliseconds: 50));
         await t.tap(salary);
@@ -254,6 +256,21 @@ void main() {
         await t.tap(find.byTooltip('تجميع حسب'));
         await t.pumpAndSettle();
         await t.tap(find.text('القسم').last);
+      },
+    );
+  });
+
+  testWidgets('arabic search', skip: !_enabled, (t) async {
+    await _shoot(
+      t,
+      'search_arabic',
+      size: const Size(1280, 700),
+      locale: const Locale('ar', 'YE'),
+      tab: 2,
+      interact: (t) async {
+        // Typed without hamza: still finds "أحمد".
+        await t.enterText(find.byType(TextField).first, 'احمد');
+        await t.pump(const Duration(milliseconds: 400));
       },
     );
   });

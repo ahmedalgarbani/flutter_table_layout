@@ -85,8 +85,13 @@ void main() {
     expect(find.byType(TableShimmer), findsWidgets);
     final s = _skeleton(tester);
     expect(s.compact, isFalse);
-    expect(s.showHeader, isTrue);
+    // The real column headers stay; the skeleton only replaces the rows and
+    // mirrors the laid-out column widths.
+    expect(s.showHeader, isFalse);
+    expect(find.text('Name'), findsOneWidget);
     expect(s.columns!.map((c) => c.id), ['id', 'name', 'qty']);
+    expect(s.columns!.first.width, 80);
+    expect(s.leadingWidth, 48); // the selection column
     // No dimmed overlay / progress bar on top of the skeleton.
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
