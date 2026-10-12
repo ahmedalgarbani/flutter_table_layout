@@ -1,8 +1,8 @@
 # flutter_table_layout
 
-**Adaptive data tables for Flutter.** One widget gives you a dense data grid on desktop and web, and expandable cards on phones. It comes with search, date and custom filters, sorting, pagination, selection, summaries, Excel / Word / PDF export, printing, auto-generated CRUD forms, five themes, and full RTL (Arabic) support.
+**Adaptive data tables for Flutter.** One widget gives you a dense data grid on desktop and web, and expandable cards on phones. It comes with search (tolerant of Arabic spelling variants), date and custom filters, sorting, pagination, selection, a column-aligned **totals row**, Excel / CSV / Word / PDF export, printing, copy to clipboard, auto-generated CRUD forms, seven themes, and full RTL (Arabic) support.
 
-The grid also covers the "spreadsheet" features: **frozen columns, sticky header with virtualized rows (100k+ rows), column resize and drag & drop reorder, a per-column filter row, multi-column sort, row grouping, inline cell editing, keyboard navigation, and server-side data sources.**
+The grid also covers the "spreadsheet" features: **frozen columns, sticky header with virtualized rows (100k+ rows), column resize and drag & drop reorder, a per-column filter row, multi-column sort, row grouping, inline cell editing, keyboard navigation, server-side data sources, and saving / restoring the user's table layout.**
 
 <p align="center">
   <img src="doc/screenshots/desktop_light.png" alt="Desktop data grid" width="780">
@@ -26,6 +26,9 @@ The grid also covers the "spreadsheet" features: **frozen columns, sticky header
 - [Pagination](#pagination)
 - [Selection, row taps and expandable rows](#selection-row-taps-and-expandable-rows)
 - [Summary row](#summary-row)
+- [Totals row (column aggregates)](#totals-row-column-aggregates)
+- [Row identity (`rowKey`)](#row-identity-rowkey)
+- [Saving and restoring the table state](#saving-and-restoring-the-table-state)
 - [Controlling the table from outside](#controlling-the-table-from-outside)
 - [Loading and empty states](#loading-and-empty-states)
 - [Layout mode (grid or cards)](#layout-mode-grid-or-cards)
@@ -57,34 +60,37 @@ The grid also covers the "spreadsheet" features: **frozen columns, sticky header
 | | |
 |---|---|
 | 📱 **Adaptive layout** | Data grid above `mobileBreakpoint` (600 px by default). Below it, rows become expandable cards. Horizontal scrolling kicks in when the columns don't fit. |
-| 🔎 **Search** | Debounced, case-insensitive search over visible and searchable columns. Dates also match `yyyy-MM-dd`. |
+| 🔎 **Search** | Debounced, case-insensitive search over visible and searchable columns. It also matches the **displayed** text (`1,500.00`, your date format), and is tolerant of **Arabic** spelling variants: `احمد` finds `أحمد`, `مدرسه` finds `مدرسة`, diacritics are ignored and `١٢٣` = `123`. |
 | 📅 **Filters** | A single "Period" button with quick periods, a range calendar and typed dates (bottom sheet on phones), a "Query" button mode, your own filter widgets (`customFilters`), and a "Clear filters" button. |
-| ↕️ **Sorting** | Stable sort. Numbers, strings (case-insensitive), dates and booleans compare naturally, and `null` always sorts last. |
-| 📄 **Pagination** | Numbered pages, a rows-per-page menu, "Showing 11–20 of 48". The current page is clamped automatically when data shrinks. |
+| ↕️ **Sorting** | Stable sort. Numbers, strings (case-insensitive), dates and booleans compare naturally, and `null` always sorts last. Optional third click to unsort (`tristateSort`), and a "Sort by" bar on phones. |
+| 📄 **Pagination** | Numbered pages, a rows-per-page menu (with an optional "All"), "Showing 11–20 of 48". The current page is clamped automatically when data shrinks. |
 | ☑️ **Selection** | Row checkboxes, a tri-state *select all*, `onSelectionChanged`, and a selection badge. Exports use only the selected rows when there are any. |
 | 🧩 **Expandable rows** | `expandedRowBuilder` adds a details panel on desktop and mobile. |
-| 🧮 **Summary row** | `summaryBuilder` receives every filtered row, across all pages. |
-| 📤 **Export** | Excel `.xlsx` with typed cells, Word `.doc`, PDF (auto landscape, Arabic font), and system printing. Web downloads the file, mobile opens the share sheet, desktop saves to Downloads. |
+| 🧮 **Totals row** | `aggregate: TableAggregate.sum` (average, min, max, count or your own) adds a sticky totals row aligned with the columns, live with the filters, also on phones and in exports. Free-form `summaryBuilder` too. |
+| 📤 **Export** | Excel `.xlsx` with typed cells, CSV (UTF-8 with BOM, formula-injection safe), Word `.doc`, PDF (auto landscape, Arabic font), and system printing, all with the totals row. Web downloads the file, mobile opens the share sheet, desktop saves to Downloads. |
+| 📋 **Copy** | Ctrl/Cmd + C copies the selected rows (or the focused cell) as tab-separated text that pastes into Excel / Google Sheets. |
+| 💾 **Persistence** | `TableSnapshot` (search, filters, sort, page, hidden / resized / reordered / frozen columns) with `toJson` / `encode`; `initialSnapshot` + `onSnapshotChanged`. |
 | 📝 **Dynamic forms** | Generate add/edit dialogs from your columns, with validation and typed values. |
-| 🎨 **Themes** | `adaptive`, `light`, `dark`, `glassmorphic`, `gradient`, `cozy`. It's a `ThemeExtension`, so you can register it once for the whole app. |
+| 🎨 **Themes** | `adaptive`, `material` (Material 3, from your `ColorScheme`), `light`, `dark`, `glassmorphic`, `gradient`, `cozy`, plus `density` (compact / standard / comfortable). It's a `ThemeExtension`, so you can register it once for the whole app. |
 | 🌍 **i18n and RTL** | English and Arabic built in, every string can be overridden, and layout, alignment and icons mirror in RTL. |
 | 🧊 **Frozen columns** | Pin columns at the start or end (`pin: ColumnPin.start`); users can pin from the columns menu. LTR and RTL. |
 | 🚀 **Large data** | `bodyHeight` / `fillHeight`: sticky header and lazily built rows. Tested with 100,000 rows. |
 | ↔️ **Column layout** | Resize by dragging the header edge (double-click resets), reorder by long-press + drag, "Reset columns". |
 | 🧪 **Column filters** | A filter row under the header: `text`, `=x`, `!=x`, `>10`, `<=5`, `10..20`, `a, b`, dates `>=2026-01-01`. |
 | 🔢 **Multi-sort** | Shift + click adds secondary sort levels, shown as 1, 2, 3 in the header. |
-| 🗂️ **Grouping** | `groupByColumnId`, collapsible groups, per-group aggregates via `groupHeaderBuilder`. |
+| 🗂️ **Grouping** | `groupByColumnId` or a built-in "Group by" toolbar menu, collapsible groups, per-group aggregates via `groupHeaderBuilder`. |
 | ✏️ **Inline editing** | Double-click or Enter to edit text, number, dropdown, date or boolean cells, with validation and per-cell permissions. |
-| ⌨️ **Keyboard** | Arrows, Enter/F2, Tab, Space, Home/End, Page Up/Down, Ctrl+A, Escape. |
+| ⌨️ **Keyboard** | Arrows, Enter/F2, Tab (leaves the grid after the last cell), Space, Home/End, Page Up/Down, Ctrl+A, Ctrl+C, Escape. |
 | ☁️ **Server-side** | `AdaptiveTableDataSource`: search, filters, sort and paging are sent to your API. Stale responses are ignored. |
 | ✨ **Skeleton loading** | `loadingStyle: TableLoadingStyle.skeleton`: placeholder rows (cards on phones) with a shimmer that follows RTL and respects reduced motion. No extra dependency. |
-| 🕹️ **Controller** | `AdaptiveTableController` to search, filter, sort, paginate and select from anywhere. |
+| 🕹️ **Controller** | `AdaptiveTableController` to search, filter, sort, paginate, select, export, print, copy and save / restore the layout from anywhere. |
+| 🔑 **Row identity** | `rowKey: (row) => row.id` keeps selected and expanded rows across immutable updates and server pages. |
 
 ## Installation
 
 ```yaml
 dependencies:
-  flutter_table_layout: ^0.1.0
+  flutter_table_layout: ^0.2.0
 ```
 
 ```bash
@@ -189,6 +195,10 @@ class InvoicesPage extends StatelessWidget {
 | `isEditable` | `false` | Allow inline editing (with `onCellEdited`). |
 | `editor` | inferred | `CellEditor.text / number / dropdown(options) / date / boolean`. |
 | `cellValidator` | `null` | Validates inline edits. Return an error message to keep the editor open. |
+| `isGroupable` | `true` | Offered in the "Group by" toolbar menu. |
+| `aggregate` | `null` | Footer total: `TableAggregate.sum / average / min / max / count`. See [Totals row](#totals-row-column-aggregates). |
+| `aggregator` | `null` | Custom total computed from the filtered rows (wins over `aggregate`). |
+| `aggregateFormatter` | `valueFormatter` | Formats the total. |
 
 ```dart
 AdaptiveTableColumn<Currency>(
@@ -256,6 +266,15 @@ class CurrencyFilter extends StatelessWidget {
 
 > Value providers whose key doesn't match any column are **search-only keys**. For example, `'tags': (t) => t.tags.join(' ')` makes tags searchable without showing a column.
 
+**What the search matches**
+
+- The raw value **and the displayed text** (from `valueFormatter`): `1,500.00`, `05/01/2026`…
+- Arabic text regardless of spelling variants: hamza forms (`أ إ آ` = `ا`), `ة` = `ه`, `ى` = `ي`, diacritics (tashkeel) and tatweel are ignored, and Arabic-Indic digits equal ASCII digits.
+
+<p align="center"><img src="doc/screenshots/search_arabic.png" alt="Arabic search: احمد finds أحمد" width="720"></p>
+
+The same folding applies to the per-column filters and to the order of text values. To compare text differently, pass a `textNormalizer` (e.g. `TableTextNormalizer.caseInsensitive` for plain case-insensitive matching, or your own `String Function(String)`).
+
 ### Date filter ("Period" button)
 
 <p align="center">
@@ -301,11 +320,13 @@ AdaptiveTableLayout<Invoice>(
 
 The panel is also usable on its own: `showTableDateRangePicker(context: …, start: …, end: …, theme: …, labels: …)`.
 
+**Sorting:** click a header to sort ascending, click again for descending. With `tristateSort: true` a third click removes the sort. On phones the cards get a **"Sort by"** bar (column + direction), since there are no headers to click (`showCardSortBar: false` hides it).
+
 ## Pagination
 
 ```dart
 AdaptiveTableLayout<T>(
-  pageSizes: const [10, 25, 50, 100],
+  pageSizes: const [10, 25, 50, 100, 0], // 0 adds an "All" option
   initialPageSize: 25,
   showPagination: true, // false = render every row, no footer
 )
@@ -337,6 +358,64 @@ summaryBuilder: (context, rows) {
 },
 ```
 
+## Totals row (column aggregates)
+
+Give a column an `aggregate` and the grid gets a **totals row**, aligned with the columns (frozen columns included) and sticky under virtualized rows:
+
+```dart
+AdaptiveTableColumn<Invoice>(
+  id: 'total',
+  title: 'Total',
+  alignment: TableColumnAlignment.end,
+  valueFormatter: (v) => money.format(v),   // also formats the total
+  aggregate: TableAggregate.sum,            // sum, average, min, max, count
+),
+AdaptiveTableColumn<Invoice>(
+  id: 'balance',
+  title: 'Balance',
+  // Anything else: computed from the filtered rows.
+  aggregator: (rows) => rows.fold<double>(0, (s, r) => s + r.debit - r.credit),
+),
+```
+
+- Totals cover **every filtered row** (all pages) and update with the search and filters. Hover a total to see its kind (Sum, Average…).
+- The first column shows "Total" when it has no total of its own.
+- On phones they appear in a panel under the cards.
+- Exports (Excel with typed values, CSV, Word, PDF, print) end with the same totals row, computed over the exported rows (turn it off with `TableExportOptions(includeTotals: false)`).
+- Read them with `controller.aggregates['total']`.
+- **Server mode:** return the totals of all matching rows in `TableDataPage(aggregates: {'total': 12345})`. Without them the table sums the current page.
+
+## Row identity (`rowKey`)
+
+By default rows are matched with `==`. If your models are immutable (`copyWith`) or come from a server, every refresh creates new instances, and the selection / expanded rows are lost. Give the table a key:
+
+```dart
+AdaptiveTableLayout<Invoice>(
+  rowKey: (invoice) => invoice.id,
+  // …
+)
+```
+
+Selected and expanded rows then follow their new instances, stay selected across server pages (exports include the selected rows of other pages), and an inline edit that replaces the row keeps it selected.
+
+## Saving and restoring the table state
+
+A `TableSnapshot` holds everything a user can change: search, filters, sort levels, grouping, page, page size, and the column layout (hidden, widths, order, frozen). Save it and restore it on the next visit:
+
+```dart
+AdaptiveTableLayout<Invoice>(
+  initialSnapshot: TableSnapshot.tryDecode(prefs.getString('invoices.table')),
+  onSnapshotChanged: (snapshot) =>
+      prefs.setString('invoices.table', snapshot.encode()),
+  // …
+)
+```
+
+- `snapshot.toJson()` / `TableSnapshot.fromJson(…)` if you store JSON yourself (custom filter values must be JSON-encodable).
+- Unknown columns in an old snapshot are ignored; at least one column always stays visible.
+- From code: `controller.snapshot` and `controller.restoreSnapshot(snapshot)`.
+- `TableStateModel` (the query alone) also has `toJson` / `fromJson`, handy for server requests or deep links.
+
 ## Controlling the table from outside
 
 ```dart
@@ -355,11 +434,19 @@ controller.setColumnFilter('total', '>100');
 controller.addSort('date');                  // secondary sort level
 controller.groupBy('customer');
 controller.setColumnPin('customer', ColumnPin.start);
+controller.toggleSort('date', tristate: true); // like a header click
 controller.refresh();                        // reload (server mode)
+
+await controller.exportAs(ExportFormat.pdf); // like the toolbar menu
+await controller.printTable();
+await controller.copyToClipboard();          // selected (or filtered) rows
 
 final rows = controller.filteredItems;   // all pages, filtered and sorted
 final picked = controller.selectedItems;
+final totals = controller.aggregates;    // {'total': 12345.0}
+final saved = controller.snapshot;       // restoreSnapshot(saved) later
 controller.resetFilters();
+controller.resetAll();                   // initial filters / sort / page size
 ```
 
 The controller is a `ChangeNotifier`, so `ListenableBuilder(listenable: controller, …)` rebuilds on every table change. Use `onTableStateChanged` to persist the search/sort/page state, or to drive server-side queries.
@@ -384,8 +471,9 @@ AdaptiveTableLayout<T>(
 )
 ```
 
-While there are no rows yet, the table shows placeholder rows shaped like your
-columns (widths / flex), or placeholder cards on phones, with a shimmer sweep.
+While there are no rows yet, the table shows placeholder rows under the real
+column headers (aligned with the laid-out widths), or placeholder cards on
+phones, with a shimmer sweep.
 It also covers the first page of a server-side `dataSource`. When rows are
 already shown, a refresh keeps them with a thin progress bar, as before.
 
@@ -398,7 +486,7 @@ already shown, a refresh keeps them with a thin progress bar, as before.
   `TableSkeleton(compact: true)` for cards, or wrap your own
   `SkeletonBox`es in a `TableShimmer`.
 
-If a value provider throws, the table shows an error message instead of crashing, and recovers on the next change.
+If a value provider throws, the table shows an error message instead of crashing, and recovers on the next change. On desktop an empty table keeps its column headers (and filter row), and during an error (e.g. a server error) the toolbar and the search box stay usable.
 
 ## Layout mode (grid or cards)
 
@@ -412,6 +500,8 @@ AdaptiveTableLayout<T>(
 ```
 
 The toolbar and footer always adapt to the available width, whatever the mode.
+
+On cards, the title defaults to the first visible column that shows text (an id or number column makes a poor title) and the subtitle to the next column; set `mobileTitleColumnId` / `mobileSubtitleColumnId` to choose.
 
 ## Advanced grid
 
@@ -517,11 +607,14 @@ controller.addSort('name');
 ```dart
 AdaptiveTableLayout<Employee>(
   groupByColumnId: 'department',               // or controller.groupBy('city')
+  showGroupingMenu: true,                      // a "Group by" menu in the toolbar
   groupHeaderBuilder: (context, group) => Text(
     'Avg: ${group.rows.map((e) => e.salary).reduce((a, b) => a + b) / group.rows.length}',
   ),
 )
 ```
+
+The "Group by" menu lists the columns with a value provider; set `isGroupable: false` on the ones that make no sense to group by (ids, amounts, dates…).
 
 - Click a group header to collapse or expand it.
 - `group.rows` holds every row of the group across all pages, so aggregates cover the whole group.
@@ -556,7 +649,7 @@ AdaptiveTableLayout<Employee>(
 |---|---|
 | Double-click, Enter or F2 | Start editing |
 | Enter | Save |
-| Tab / Shift+Tab | Save and edit the next / previous cell |
+| Tab / Shift+Tab | Save and edit the next / previous **editable** cell |
 | Escape | Cancel |
 | Click outside | Save |
 
@@ -564,17 +657,21 @@ The editor is inferred from the value (`num` → number, `DateTime` → date pic
 
 ### Keyboard navigation
 
-Click a cell, then:
+Click a cell (or Tab into the rows), then:
 
 | Key | Action |
 |---|---|
 | ← → ↑ ↓ | Move between cells (mirrored in RTL) |
+| Tab / Shift+Tab | Next / previous cell; after the last cell the focus leaves the grid |
 | Enter / F2 | Edit, or run `onRowTap` / expand the row |
 | Space | Select the row |
 | Home / End (+Ctrl) | First / last column (row) |
-| Page Up / Page Down | Previous / next page |
+| Page Up / Page Down | Previous / next page (10 rows without pagination) |
 | Ctrl/Cmd + A | Select all |
+| Ctrl/Cmd + C | Copy the selected rows (or the focused cell) |
 | Escape | Leave the cell |
+
+Keys typed in the column filter fields, inline editors or buttons inside cells stay theirs.
 
 Turn it off with `enableKeyboardNavigation: false`.
 
@@ -612,24 +709,29 @@ class _InvoicesState extends State<InvoicesPage> {
 - A progress bar shows while a request is in flight, and out-of-order responses are ignored.
 - On error, the table shows a **Retry** button (`controller.refresh()` also reloads).
 - If the server has fewer pages than the current page, the table moves to the last page automatically.
-- Selection and exports work on the rows of the current page. Use `onExportRequested` for server-side exports.
+- With a `rowKey`, the selection spans pages, and exports include the selected rows of every page. Use `onExportRequested` for full server-side exports.
+- Return `TableDataPage(aggregates: {...})` for totals over all matching rows.
 - **Tip:** `FilterItemsUseCase` is pure Dart, so your Dart backend can run exactly the same filtering and sorting.
 
 ## Export and printing
 
-The toolbar has **Excel**, **Word**, **PDF** and **Print** actions. Exports:
+The toolbar has **Excel**, **CSV**, **Word**, **PDF** and **Print** actions. Exports:
 
-- respect the current search, filters and sort order;
+- respect the current search, filters and sort order, and end with the totals row;
 - export **only the selected rows** when some are selected (`exportSelectedWhenAny`);
 - skip hidden columns and columns with `isExportable: false`;
-- escape HTML in the Word output, and use safe file and sheet names, including Arabic titles;
+- escape HTML in the Word output, neutralize spreadsheet formulas in CSV text cells (`=`, `+`, `-`, `@`), and use safe file and sheet names, including Arabic titles;
+- write CSV as UTF-8 with a byte-order mark, so Excel opens Arabic text correctly;
+- pick black or white header text depending on how light your accent color is;
 - save the file where it belongs: a browser download on web, the share sheet on mobile, and `~/Downloads` on desktop (with a snackbar showing the path).
 
 ```dart
 AdaptiveTableLayout<T>(
   exportOptions: TableExportOptions(
     fileName: 'statement_2026',
-    formats: {ExportFormat.excel, ExportFormat.pdf},
+    formats: {ExportFormat.excel, ExportFormat.csv, ExportFormat.pdf},
+    csvDelimiter: ';',            // e.g. for locales with a decimal comma
+    includeTotals: true,          // default
     pdfFont: myRegularFont,       // pw.Font.ttf(await rootBundle.load('assets/Cairo-Regular.ttf'))
     pdfBoldFont: myBoldFont,
     pdfPageFormat: PdfPageFormat.a4.landscape,
@@ -759,12 +861,13 @@ AdaptiveTableLayout<Invoice>(
 
 ## Themes
 
-| Glassmorphic | Gradient | Cozy |
-|---|---|---|
-| ![glass](doc/screenshots/theme_glassmorphic.png) | ![gradient](doc/screenshots/theme_gradient.png) | ![cozy](doc/screenshots/theme_cozy.png) |
+| Material 3 | Glassmorphic | Gradient | Cozy |
+|---|---|---|---|
+| ![material](doc/screenshots/theme_material.png) | ![glass](doc/screenshots/theme_glassmorphic.png) | ![gradient](doc/screenshots/theme_gradient.png) | ![cozy](doc/screenshots/theme_cozy.png) |
 
 ```dart
 AdaptiveTableTheme.adaptive(context)          // default: follows light/dark + colorScheme.primary
+AdaptiveTableTheme.material(context)          // Material 3 surfaces from your ColorScheme
 AdaptiveTableTheme.light(context, accentColor: Colors.teal)
 AdaptiveTableTheme.dark(context)
 AdaptiveTableTheme.glassmorphic(context, isDark: true) // place over an image/gradient
@@ -778,6 +881,8 @@ AdaptiveTableTheme.light(context).copyWith(
   accentColor: Colors.deepPurple,
 )
 ```
+
+Row height: `density: TableDensity.compact` (or `comfortable`) on the table, or `theme.withDensity(...)`.
 
 Register a theme once for the whole app. It also animates between light and dark:
 
@@ -822,12 +927,16 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | Excel + Word + PDF export, print | ✅ built in | 🟡 add-on | 🟡 add-on | ❌ | ❌ |
 | Auto-generated add / edit forms | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Summary row + group aggregates | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Ready-made themes | ✅ 6 | ✅ | ✅ | 🟡 | 🟡 |
+| Column totals row (in exports too) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Copy rows to the clipboard | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Save / restore the user's layout | ✅ | 🟡 | 🟡 | ❌ | ❌ |
+| Arabic-aware search (hamza, tashkeel, digits) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Ready-made themes | ✅ 7 | ✅ | ✅ | 🟡 | 🟡 |
 | External controller | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 
 **Where this package is stronger:** it's the only one that turns into cards on phones automatically, it ships Arabic out of the box, exports to Excel, Word and PDF and prints without add-ons, and generates CRUD forms from your columns. All of that sits in one MIT-licensed widget, with the same API on phone, tablet, desktop and web.
 
-**Where the others are still ahead:** Excel-style clipboard copy/paste, multi-cell range selection, row drag & drop, stacked (multi-level) headers, tree data, and cell merging. These are not implemented here yet.
+**Where the others are still ahead:** pasting from the clipboard, multi-cell range selection, row drag & drop, stacked (multi-level) headers, tree data, and cell merging. These are not implemented here yet.
 
 ## API reference
 
@@ -845,9 +954,15 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `title` / `subtitle` / `titleIcon` | | `null` | Toolbar header. |
 | `toolbarActions` | `List<Widget>?` | `null` | Extra toolbar buttons. |
 | `onRefreshPressed` / `onAddNewPressed` / `onQueryPressed` | `VoidCallback?` | `null` | Toolbar callbacks. |
-| `showSearch` / `showSelection` / `showExport` / `showPrint` / `showColumnsToggle` / `showPagination` / `showSummary` / `showClearFilters` | `bool` | `true` | Feature switches. |
+| `showSearch` / `showSelection` / `showExport` / `showPrint` / `showColumnsToggle` / `showPagination` / `showSummary` / `showClearFilters` / `showCardSortBar` | `bool` | `true` | Feature switches. |
+| `showGroupingMenu` | `bool` | `false` | "Group by" menu in the toolbar. |
+| `rowKey` | `Object? Function(T)?` | `null` | Row identity for selection / expansion across new instances and pages. |
+| `tristateSort` | `bool` | `false` | Third header click removes the sort. |
+| `initialSnapshot` / `onSnapshotChanged` | `TableSnapshot?` / callback | `null` | Restore / persist the query and column layout. |
+| `density` | `TableDensity` | `standard` | Row and header vertical spacing. |
+| `textNormalizer` | `String Function(String)` | `TableTextNormalizer.normalize` | How search and column filters compare text. |
 | `showDateFilter` | `bool?` | `dateProvider != null` | Show the date pickers. |
-| `pageSizes` / `initialPageSize` | `List<int>` / `int?` | `[5,10,20,50]` / `10` | Pagination. |
+| `pageSizes` / `initialPageSize` | `List<int>` / `int?` | `[5,10,20,50]` / `10` | Pagination (`0` = "All"). |
 | `initialSortColumnId` / `initialSortAscending` | | `null` / `true` | Initial sort. |
 | `summaryBuilder` | `Widget Function(BuildContext, List<T>)?` | `null` | Summary row. |
 | `expandedRowBuilder` | `Widget Function(BuildContext, T)?` | `null` | Row details panel. |
@@ -866,7 +981,7 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `groupByColumnId` / `groupHeaderBuilder` | | `null` | Row grouping and group aggregates. |
 | `onCellEdited` / `canEditCell` | callbacks | `null` | Inline editing and per-cell permission. |
 | `minRowHeight` | `double` | `0` | Minimum desktop row height. |
-| `mobileTitleColumnId` / `mobileSubtitleColumnId` | `String?` | first / second column | Card title and subtitle. |
+| `mobileTitleColumnId` / `mobileSubtitleColumnId` | `String?` | first text column / the next one | Card title and subtitle. |
 | `theme` / `labels` | | `AdaptiveTableTheme.of` / `AdaptiveTableLabels.of` | Styling and strings. |
 | `searchDebounce` | `Duration` | `250ms` | Search delay. |
 | `firstDate` / `lastDate` | `DateTime?` | 1900 / 2200 | Date picker range. |
@@ -932,12 +1047,15 @@ The workflow checks that the tag matches `pubspec.yaml`, runs analyze and tests,
 **flutter_table_layout** مكتبة جداول ذكية لـ Flutter. تعرض البيانات كجدول كامل على الكمبيوتر والويب، وتحوّلها تلقائياً إلى بطاقات قابلة للتوسيع على الجوال. تدعم العربية واتجاه RTL بالكامل.
 
 **أهم المزايا:** (ومعها تثبيت الأعمدة، والتعديل المباشر، والتجميع، والفلترة لكل عمود، والبيانات من السيرفر)
-- بحث فوري، وفلترة بالتاريخ (من / إلى)، وفلاتر مخصصة، وزر لمسح الفلاتر.
+- بحث فوري يفهم العربية: `احمد` يجد `أحمد`، و`مدرسه` يجد `مدرسة`، ويتجاهل التشكيل والتطويل، والأرقام الهندية `١٢٣` تساوي `123`. ويطابق النص المعروض أيضاً (مثل `1,500.00`).
+- فلترة بالتاريخ (الفترة)، وفلاتر مخصصة، وزر لمسح الفلاتر.
 - فرز ثابت يفهم الأرقام والنصوص والتواريخ، وترقيم صفحات بأرقام وعدد صفوف قابل للتغيير.
-- تحديد الصفوف مع استدعاء `onSelectionChanged`، وصفوف قابلة للتوسيع لعرض التفاصيل، وصف ملخص للإجماليات.
-- تصدير إلى Excel وWord وPDF (بخط عربي) وطباعة مباشرة. عند تحديد صفوف يُصدَّر المحدد منها فقط، ولا تُصدَّر الأعمدة المخفية.
+- تحديد الصفوف مع استدعاء `onSelectionChanged`، وصفوف قابلة للتوسيع لعرض التفاصيل، وصف ملخص.
+- **صف إجماليات** محاذٍ للأعمدة: `aggregate: TableAggregate.sum` (أو المتوسط، الأدنى، الأعلى، العدد، أو دالتك)، يتحدّث مع الفلترة ويظهر في الجوال والتصدير.
+- تصدير إلى Excel وCSV وWord وPDF (بخط عربي) وطباعة مباشرة، ونسخ الصفوف بـ Ctrl + C. عند تحديد صفوف يُصدَّر المحدد منها فقط، ولا تُصدَّر الأعمدة المخفية.
+- حفظ حالة الجدول (البحث والفلاتر والفرز وترتيب وعرض الأعمدة) واستعادتها: `initialSnapshot` و`onSnapshotChanged`.
 - نماذج إضافة وتعديل تُولَّد تلقائياً من الأعمدة مع التحقق من الإدخال.
-- ستة أنماط تصميم (تلقائي، فاتح، داكن، زجاجي، متدرج، مريح) قابلة للتعديل بـ `copyWith`.
+- سبعة أنماط تصميم (تلقائي، Material 3، فاتح، داكن، زجاجي، متدرج، مريح) قابلة للتعديل بـ `copyWith`، مع كثافة الصفوف `density`.
 - نصوص عربية وإنجليزية جاهزة تُختار حسب لغة التطبيق، ويمكن تخصيص أي نص.
 - متحكم `AdaptiveTableController` للتحكم بالجدول من خارجه.
 
@@ -975,9 +1093,11 @@ AdaptiveTableLayout<Transaction>(
 | تغيير عرض الأعمدة وترتيبها | اسحب حافة رأس العمود، أو اضغط مطولاً على الرأس واسحبه |
 | فلتر لكل عمود | `showColumnFilters: true`، ثم اكتب مثلاً `>1000` أو `100..500` أو `=مدفوع` |
 | فرز بأكثر من عمود | Shift + نقر على رؤوس الأعمدة |
-| تجميع الصفوف | `groupByColumnId: 'department'` و`groupHeaderBuilder` للإجماليات |
+| تجميع الصفوف | `groupByColumnId: 'department'` أو `showGroupingMenu: true`، و`groupHeaderBuilder` للإجماليات |
+| صف الإجماليات | `aggregate: TableAggregate.sum` في العمود |
+| هوية الصفوف | `rowKey: (r) => r.id` ليبقى التحديد بعد تحديث البيانات |
 | التعديل المباشر | `isEditable: true` في العمود + `onCellEdited` + `canEditCell` للصلاحيات |
-| لوحة المفاتيح | الأسهم وEnter وTab وEsc وSpace |
+| لوحة المفاتيح | الأسهم وEnter وTab وEsc وSpace وCtrl + C |
 | بيانات من السيرفر | `dataSource: AdaptiveTableDataSource.fromCallback((q) async => ...)` |
 | هيكل تحميل (Skeleton / Shimmer) | `loadingStyle: TableLoadingStyle.skeleton` مع `isLoading`، والألوان من `skeletonBaseColor` و`skeletonHighlightColor` في الثيم |
 

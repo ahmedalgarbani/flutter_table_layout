@@ -174,6 +174,11 @@ class TableSkeleton extends StatelessWidget {
   /// Adds a checkbox placeholder at the start of each row.
   final bool showSelection;
 
+  /// Width of the grid's leading area (expand + selection columns), so the
+  /// placeholder cells line up with the real columns. `null` = a compact
+  /// checkbox placeholder (when [showSelection]).
+  final double? leadingWidth;
+
   /// Defaults to [AdaptiveTableTheme.of].
   final AdaptiveTableTheme? theme;
 
@@ -188,6 +193,7 @@ class TableSkeleton extends StatelessWidget {
     this.compact = false,
     this.showHeader = true,
     this.showSelection = false,
+    this.leadingWidth,
     this.theme,
     this.animate = true,
   }) : assert(rowCount >= 0),
@@ -242,9 +248,26 @@ class TableSkeleton extends StatelessWidget {
       widthFactor: header ? 0.55 : _widths[(row + col * 3) % _widths.length],
       child: SkeletonBox(height: header ? 12 : 10),
     );
+    final leading = leadingWidth;
     return Row(
       children: [
-        if (showSelection)
+        if (leading != null)
+          SizedBox(
+            width: leading,
+            // The selection checkbox sits in the last 48 px of the area.
+            child: showSelection && !header
+                ? const Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: SizedBox(
+                      width: 48,
+                      child: Center(
+                        child: SkeletonBox(width: 18, height: 18, radius: 4),
+                      ),
+                    ),
+                  )
+                : null,
+          )
+        else if (showSelection)
           const Padding(
             padding: EdgeInsetsDirectional.only(start: 16, end: 4),
             child: SkeletonBox(width: 18, height: 18, radius: 4),

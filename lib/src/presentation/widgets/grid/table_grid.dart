@@ -9,17 +9,25 @@ import '../../../core/labels.dart';
 import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
 import '../../../domain/models/column_definition.dart';
+import '../../../domain/models/table_aggregate.dart';
 import '../../cubit/table_cubit.dart';
 import '../../cubit/table_cubit_state.dart';
+import '../../export/table_export_runner.dart';
 import '../adaptive_table_layout.dart';
 import 'cell_editor.dart';
 import 'cell_renderer.dart';
 import 'pinned_row.dart';
 import 'table_entries.dart';
 
+/// Builds what the grid shows under its header when there are no rows.
+/// [columns] are the visible columns in display order with their laid-out
+/// `width`, [leadingWidth] the width of the expand / selection columns.
+typedef GridEmptyBuilder =
+    Widget Function(List<ColumnDefinition> columns, double leadingWidth);
+
 /// The desktop data grid: sticky header, frozen columns, virtualized rows,
 /// resizable / reorderable columns, per-column filters, grouping, inline
-/// editing and keyboard navigation.
+/// editing, a totals row and keyboard navigation.
 class TableGrid<T> extends StatefulWidget {
   final TableLoaded<T> state;
   final List<AdaptiveTableColumn<T>> columns;
@@ -33,11 +41,13 @@ class TableGrid<T> extends StatefulWidget {
   final bool allowColumnResize;
   final bool allowColumnReorder;
   final bool enableKeyboardNavigation;
+  final bool tristateSort;
   final CellEditCallback<T>? onCellEdited;
   final CanEditCell<T>? canEditCell;
   final GroupHeaderBuilder<T>? groupHeaderBuilder;
   final double minRowHeight;
-  final Widget emptyPlaceholder;
+  final TableExportRunner<T>? exportRunner;
+  final GridEmptyBuilder emptyBuilder;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -55,11 +65,13 @@ class TableGrid<T> extends StatefulWidget {
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
     this.enableKeyboardNavigation = true,
+    this.tristateSort = false,
     this.onCellEdited,
     this.canEditCell,
     this.groupHeaderBuilder,
     this.minRowHeight = 0,
-    required this.emptyPlaceholder,
+    this.exportRunner,
+    required this.emptyBuilder,
     required this.theme,
     required this.labels,
   });
@@ -72,7 +84,9 @@ class TableGrid<T> extends StatefulWidget {
   State<TableGrid<T>> createState() => _TableGridState<T>();
 }
 
-typedef _CellRef = ({Object? item, String columnId});
+/// The cell being edited: its row key, its row index (fallback when the
+/// edited item is replaced by a new instance) and its column.
+typedef _EditRef = ({Object? key, int row, String columnId});
 
 class _TableGridState<T> extends State<TableGrid<T>> {
   final ScrollController _h = ScrollController();
@@ -86,7 +100,8 @@ class _TableGridState<T> extends State<TableGrid<T>> {
   /// Widths computed on the last layout (used to start a resize).
   final Map<String, double> _lastWidths = {};
 
-  _CellRef? _editing;
+  _EditRef? _editing;
+  bool _editingDropdown = false;
   String? _editError;
   bool _committing = false;
 
@@ -96,6 +111,8 @@ class _TableGridState<T> extends State<TableGrid<T>> {
   // Snapshot of the last build, used by the keyboard handler.
   List<RowEntry<T>> _rows = const [];
   List<AdaptiveTableColumn<T>> _cols = const [];
+  Set<Object?> _selectedKeys = const {};
+  Set<Object?> _expandedKeys = const {};
 
   AdaptiveTableTheme get theme => widget.theme;
   AdaptiveTableLabels get labels => widget.labels;
@@ -156,6 +173,29 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     return (widths: result, system: system, total: total);
   }
 
+  /// Keeps the edited cell on its row when the rows are rebuilt: matched by
+  /// row key, or by position when the edited item was replaced by a new
+  /// instance that is not `==` to it (immutable models without `rowKey`).
+  void _resolveEditing() {
+    final editing = _editing;
+    if (editing == null) return;
+    final state = widget.state;
+    final match = _rows.indexWhere((r) => state.keyOf(r.item) == editing.key);
+    if (match == editing.row) return;
+    if (match != -1) {
+      _editing = (key: editing.key, row: match, columnId: editing.columnId);
+    } else if (editing.row < _rows.length) {
+      final item = _rows[editing.row].item;
+      _editing = (
+        key: state.keyOf(item),
+        row: editing.row,
+        columnId: editing.columnId,
+      );
+    } else {
+      _editing = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
@@ -167,6 +207,9 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     );
     _cols = cols;
     _rows = entries.whereType<RowEntry<T>>().toList();
+    _selectedKeys = state.selectedKeys;
+    _expandedKeys = state.expandedKeys;
+    _resolveEditing();
     if (_focus != null &&
         (_focus!.row >= _rows.length || _focus!.col >= cols.length)) {
       _focus = null;
@@ -193,6 +236,9 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         final filterRow = widget.showColumnFilters
             ? _buildFilterRow(cols, layout.widths, metrics, direction)
             : null;
+        final totalsRow = entries.isEmpty
+            ? null
+            : _buildTotalsRow(cols, layout.widths, metrics, direction);
 
         Widget buildEntry(int index) {
           final entry = entries[index];
@@ -218,12 +264,18 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           );
         }
 
-        final Widget body;
+        Widget body;
         if (entries.isEmpty) {
           body = ViewportAnchored(
             metrics: metrics,
             viewportWidth: viewport,
-            child: widget.emptyPlaceholder,
+            child: widget.emptyBuilder([
+              for (var i = 0; i < cols.length; i++)
+                cols[i].definition.copyWith(
+                  width: layout.widths[i],
+                  isVisible: true,
+                ),
+            ], layout.system),
           );
         } else if (bounded) {
           body = ListView.builder(
@@ -239,6 +291,18 @@ class _TableGridState<T> extends State<TableGrid<T>> {
             children: [for (var i = 0; i < entries.length; i++) buildEntry(i)],
           );
         }
+        if (widget.enableKeyboardNavigation) {
+          // The rows are one Tab stop with their own cell navigation; the
+          // header and the filter fields stay regular Tab stops (and keep
+          // their keys: typing in a filter field is not grid navigation).
+          body = Focus(
+            focusNode: _focusNode,
+            descendantsAreTraversable: false,
+            onKeyEvent: _onKey,
+            onFocusChange: _onGridFocusChange,
+            child: body,
+          );
+        }
 
         Widget grid = Column(
           mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
@@ -251,6 +315,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               Divider(height: 1, color: theme.dividerColor),
             ],
             if (bounded) Expanded(child: body) else body,
+            if (totalsRow != null) ...[
+              Divider(height: 1, thickness: 1, color: theme.dividerColor),
+              totalsRow,
+            ],
           ],
         );
 
@@ -272,9 +340,6 @@ class _TableGridState<T> extends State<TableGrid<T>> {
             notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
             child: grid,
           );
-        }
-        if (widget.enableKeyboardNavigation) {
-          grid = Focus(focusNode: _focusNode, onKeyEvent: _onKey, child: grid);
         }
         return grid;
       },
@@ -392,34 +457,38 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       );
     }
 
-    Widget content = Padding(
-      padding: theme.headerPadding,
-      child: Row(
-        mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
-        children: [
-          Flexible(child: label),
-          if (canSort) ...[
-            const SizedBox(width: 4),
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: isSorted ? 1.0 : 0.3,
-              child: AnimatedRotation(
-                duration: const Duration(milliseconds: 200),
-                turns: isSorted && !isAscending ? 0.5 : 0,
-                child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
-              ),
-            ),
-            if (isSorted && sorts.length > 1)
-              Text(
-                '${sortIndex + 1}',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: iconColor,
+    Widget content = _HoverRegion(
+      builder: (context, hovered) => Padding(
+        padding: theme.headerPadding,
+        child: Row(
+          mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
+          children: [
+            Flexible(child: label),
+            if (canSort) ...[
+              const SizedBox(width: 4),
+              // Only the sorted columns show their arrow; the others reveal
+              // it on hover, which keeps the header calm.
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: isSorted ? 1.0 : (hovered ? 0.45 : 0.0),
+                child: AnimatedRotation(
+                  duration: const Duration(milliseconds: 200),
+                  turns: isSorted && !isAscending ? 0.5 : 0,
+                  child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
                 ),
               ),
+              if (isSorted && sorts.length > 1)
+                Text(
+                  '${sortIndex + 1}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: iconColor,
+                  ),
+                ),
+            ],
           ],
-        ],
+        ),
       ),
     );
 
@@ -430,6 +499,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           onTap: () => _cubit.toggleSort(
             col.id,
             additive: HardwareKeyboard.instance.isShiftPressed,
+            tristate: widget.tristateSort,
           ),
           child: content,
         ),
@@ -589,6 +659,110 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     );
   }
 
+  // ---------------------------------------------------------------- totals
+
+  String _aggregateLabel(AdaptiveTableColumn<T> col) =>
+      switch (col.aggregator == null ? col.aggregate : null) {
+        TableAggregate.sum => labels.sum,
+        TableAggregate.average => labels.average,
+        TableAggregate.min => labels.minimum,
+        TableAggregate.max => labels.maximum,
+        TableAggregate.count => labels.count,
+        null => labels.total,
+      };
+
+  /// The sticky totals row of the columns that declare an aggregate, aligned
+  /// with them (frozen columns included).
+  Widget? _buildTotalsRow(
+    List<AdaptiveTableColumn<T>> cols,
+    List<double> widths,
+    GridHorizontalMetrics metrics,
+    TextDirection direction,
+  ) {
+    final totals = widget.state.aggregates;
+    bool shows(AdaptiveTableColumn<T> c) =>
+        c.hasAggregate && totals.containsKey(c.id);
+    if (!cols.any(shows)) return null;
+    final labelIndex = cols.isNotEmpty && !shows(cols.first) ? 0 : -1;
+    // A narrow first column ("No.") may lend its label the empty cell next
+    // to it instead of truncating it.
+    final labelCanOverflow =
+        labelIndex == 0 &&
+        cols.length > 1 &&
+        !shows(cols[1]) &&
+        widget.state.pinOf(cols[0].definition) ==
+            widget.state.pinOf(cols[1].definition);
+    final style = theme.rowTextStyle.copyWith(fontWeight: FontWeight.w700);
+    final background = theme.effectiveSummaryBackgroundColor;
+
+    Widget cell(int i) {
+      final col = cols[i];
+      Widget? child;
+      if (i == labelIndex) {
+        child = Text(
+          labels.total,
+          style: style,
+          maxLines: 1,
+          softWrap: false,
+          overflow: labelCanOverflow
+              ? TextOverflow.visible
+              : TextOverflow.ellipsis,
+        );
+      } else if (shows(col)) {
+        child = Tooltip(
+          message: _aggregateLabel(col),
+          child: Text(
+            col.aggregateText(totals[col.id]),
+            style: style,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: CellRenderer.textAlign(col.alignment),
+          ),
+        );
+      }
+      return Padding(
+        padding: theme.rowPadding,
+        child: Align(
+          alignment: CellRenderer.alignment(col.alignment),
+          child: child,
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: Color.alphaBlend(background, theme.rowBackgroundColor),
+      child: PinnedRow(
+        metrics: metrics,
+        textDirection: direction,
+        pinnedBackground: widget.renderer.opaque(
+          Color.alphaBlend(background, theme.rowBackgroundColor),
+        ),
+        pinnedDividerColor: theme.dividerColor,
+        minHeight: widget.minRowHeight,
+        children: [
+          if (widget.expandedRowBuilder != null)
+            const PinnedCell(
+              width: TableGrid.expandColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          if (widget.showSelection)
+            const PinnedCell(
+              width: TableGrid.selectionColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          for (var i = 0; i < cols.length; i++)
+            PinnedCell(
+              width: widths[i],
+              pin: widget.state.pinOf(cols[i].definition),
+              child: cell(i),
+            ),
+        ],
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------- rows
 
   Widget _buildGroupHeader(
@@ -695,8 +869,9 @@ class _TableGridState<T> extends State<TableGrid<T>> {
   ) {
     final state = widget.state;
     final item = entry.item;
-    final selected = state.selectedItems.contains(item);
-    final expanded = state.expandedItems.contains(item);
+    final key = state.keyOf(item);
+    final selected = _selectedKeys.contains(key);
+    final expanded = _expandedKeys.contains(key);
     final color = widget.renderer.rowColor(
       item,
       selected: selected,
@@ -803,10 +978,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       widget.renderer.valueProviders.containsKey(col.id) &&
       (widget.canEditCell?.call(item, col.id) ?? true);
 
-  bool _isEditing(T item, AdaptiveTableColumn<T> col) =>
+  bool _isEditing(int rowIndex, AdaptiveTableColumn<T> col) =>
       _editing != null &&
       _editing!.columnId == col.id &&
-      _editing!.item == item;
+      _editing!.row == rowIndex;
 
   Widget _buildDataCell(
     T item,
@@ -815,7 +990,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     int colIndex,
     EdgeInsets extraPadding,
   ) {
-    final editing = _isEditing(item, col);
+    final editing = _isEditing(rowIndex, col);
     Widget child = editing
         ? _buildEditor(item, col, rowIndex, colIndex)
         : widget.renderer.cellFor(context, col, item);
@@ -838,6 +1013,9 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     if (widget.enableKeyboardNavigation) {
       child = Listener(
         onPointerDown: (_) {
+          // A dropdown editor has no "tap outside" of its own: clicking
+          // another cell closes it.
+          if (!editing && _editing != null && _editingDropdown) _cancelEdit();
           if (_focus?.row != rowIndex || _focus?.col != colIndex) {
             setState(() => _focus = (row: rowIndex, col: colIndex));
           }
@@ -905,7 +1083,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       onCancel: _cancelEdit,
       onTab: (text, backwards) async {
         final ok = await _submitText(item, col, text, isNumber);
-        if (ok) _moveFocus(0, backwards ? -1 : 1, startEditing: true);
+        if (ok && mounted) _editNext(backwards: backwards);
       },
     );
   }
@@ -961,7 +1139,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       case CellEditorType.number:
       case CellEditorType.dropdown:
         setState(() {
-          _editing = (item: item, columnId: col.id);
+          _editing = (
+            key: widget.state.keyOf(item),
+            row: rowIndex,
+            columnId: col.id,
+          );
+          _editingDropdown = editor.type == CellEditorType.dropdown;
           _editError = null;
         });
     }
@@ -1022,14 +1205,38 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     _focusNode.requestFocus();
   }
 
+  /// After Tab / Shift + Tab in an editor: edits the next editable cell in
+  /// reading order (like a spreadsheet), or stays when there is none.
+  void _editNext({required bool backwards}) {
+    final f = _focus;
+    if (f == null || _cols.isEmpty) return;
+    final total = _rows.length * _cols.length;
+    var index = f.row * _cols.length + f.col;
+    while (true) {
+      index += backwards ? -1 : 1;
+      if (index < 0 || index >= total) return;
+      final row = index ~/ _cols.length;
+      final col = index % _cols.length;
+      if (_canEdit(_rows[row].item, _cols[col])) {
+        _focusCell(row, col, forward: !backwards, startEditing: true);
+        return;
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- keyboard
 
-  void _moveFocus(int dRow, int dCol, {bool startEditing = false}) {
+  /// Focuses the cell at [row] / [col] (clamped) and scrolls it into view.
+  void _focusCell(
+    int row,
+    int col, {
+    required bool forward,
+    bool startEditing = false,
+  }) {
     if (_rows.isEmpty || _cols.isEmpty) return;
-    final current = _focus ?? (row: 0, col: 0);
     final next = (
-      row: (current.row + dRow).clamp(0, _rows.length - 1),
-      col: (current.col + dCol).clamp(0, _cols.length - 1),
+      row: row.clamp(0, _rows.length - 1),
+      col: col.clamp(0, _cols.length - 1),
     );
     setState(() => _focus = next);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1038,7 +1245,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         Scrollable.ensureVisible(
           ctx,
           duration: const Duration(milliseconds: 120),
-          alignmentPolicy: dRow > 0 || dCol > 0
+          alignmentPolicy: forward
               ? ScrollPositionAlignmentPolicy.keepVisibleAtEnd
               : ScrollPositionAlignmentPolicy.keepVisibleAtStart,
         );
@@ -1046,13 +1253,91 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     });
     if (startEditing) {
       final item = _rows[next.row].item;
-      final col = _cols[next.col];
-      if (_canEdit(item, col)) _startEdit(item, col, next.row, next.col);
+      final column = _cols[next.col];
+      if (_canEdit(item, column)) _startEdit(item, column, next.row, next.col);
+    }
+  }
+
+  /// Moves the focus by [dRow] / [dCol]. The first move focuses the first
+  /// cell.
+  void _moveFocus(int dRow, int dCol) {
+    final current = _focus;
+    if (current == null) {
+      _focusCell(0, 0, forward: true);
+      return;
+    }
+    _focusCell(
+      current.row + dRow,
+      current.col + dCol,
+      forward: dRow > 0 || dCol > 0,
+    );
+  }
+
+  /// Tab / Shift + Tab: the next / previous cell in reading order. Returns
+  /// `false` past the first / last cell, so the focus leaves the grid instead
+  /// of being trapped in it.
+  bool _tab({required bool backwards}) {
+    if (_rows.isEmpty || _cols.isEmpty) return false;
+    final current = _focus;
+    if (current == null) {
+      if (backwards) return false;
+      _focusCell(0, 0, forward: true);
+      return true;
+    }
+    final index =
+        current.row * _cols.length + current.col + (backwards ? -1 : 1);
+    if (index < 0 || index >= _rows.length * _cols.length) {
+      setState(() => _focus = null);
+      return false;
+    }
+    _focusCell(
+      index ~/ _cols.length,
+      index % _cols.length,
+      forward: !backwards,
+    );
+    return true;
+  }
+
+  /// Ctrl / Cmd + C: the selected rows (tab-separated, pastes into a
+  /// spreadsheet), otherwise the focused cell.
+  bool _copy() {
+    final runner = widget.exportRunner;
+    if (runner == null) return false;
+    final state = widget.state;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (state.selectedItems.isNotEmpty) {
+      unawaited(
+        runner.copyRows(
+          state: state,
+          messenger: messenger,
+          rows: runner.selectedRows(state),
+        ),
+      );
+      return true;
+    }
+    final f = _focus;
+    if (f == null || _rows.isEmpty) return false;
+    final text = widget.renderer.textFor(_cols[f.col], _rows[f.row].item);
+    unawaited(runner.copyText(text, messenger: messenger));
+    return true;
+  }
+
+  /// Reaching the rows with Tab shows the first cell as focused.
+  void _onGridFocusChange(bool focused) {
+    if (!mounted) return;
+    if (focused && _focus == null && _rows.isNotEmpty && _cols.isNotEmpty) {
+      setState(() => _focus = (row: 0, col: 0));
+    } else if (!focused) {
+      setState(() {}); // hide the focus border
     }
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (_editing != null) return KeyEventResult.ignored;
+    // Keys typed in a descendant (inline editor, a button inside a cell…)
+    // belong to it.
+    if (_editing != null || !node.hasPrimaryFocus) {
+      return KeyEventResult.ignored;
+    }
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
@@ -1060,6 +1345,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final rtl = Directionality.of(context) == TextDirection.rtl;
     final keyboard = HardwareKeyboard.instance;
     final ctrl = keyboard.isControlPressed || keyboard.isMetaPressed;
+    final paginated = widget.state.tableState.isPaginated;
 
     if (key == LogicalKeyboardKey.arrowDown) {
       _moveFocus(1, 0);
@@ -1070,17 +1356,25 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     } else if (key == LogicalKeyboardKey.arrowLeft) {
       _moveFocus(0, rtl ? 1 : -1);
     } else if (key == LogicalKeyboardKey.home) {
-      _moveFocus(ctrl ? -_rows.length : 0, -_cols.length);
+      _focusCell(ctrl ? 0 : (_focus?.row ?? 0), 0, forward: false);
     } else if (key == LogicalKeyboardKey.end) {
-      _moveFocus(ctrl ? _rows.length : 0, _cols.length);
+      _focusCell(
+        ctrl ? _rows.length - 1 : (_focus?.row ?? 0),
+        _cols.length - 1,
+        forward: true,
+      );
     } else if (key == LogicalKeyboardKey.pageDown) {
-      _cubit.nextPage();
+      paginated ? _cubit.nextPage() : _moveFocus(10, 0);
     } else if (key == LogicalKeyboardKey.pageUp) {
-      _cubit.previousPage();
+      paginated ? _cubit.previousPage() : _moveFocus(-10, 0);
     } else if (key == LogicalKeyboardKey.tab) {
-      _moveFocus(0, keyboard.isShiftPressed ? -1 : 1);
+      if (!_tab(backwards: keyboard.isShiftPressed)) {
+        return KeyEventResult.ignored;
+      }
     } else if (ctrl && key == LogicalKeyboardKey.keyA && widget.showSelection) {
       _cubit.toggleSelectAll(true);
+    } else if (ctrl && key == LogicalKeyboardKey.keyC) {
+      if (!_copy()) return KeyEventResult.ignored;
     } else if (key == LogicalKeyboardKey.escape) {
       if (_focus == null) return KeyEventResult.ignored;
       setState(() => _focus = null);
@@ -1109,6 +1403,29 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 }
 
 // ------------------------------------------------------------------ widgets
+
+/// Rebuilds [builder] when the mouse enters / leaves.
+class _HoverRegion extends StatefulWidget {
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  const _HoverRegion({required this.builder});
+
+  @override
+  State<_HoverRegion> createState() => _HoverRegionState();
+}
+
+class _HoverRegionState extends State<_HoverRegion> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: widget.builder(context, _hovered),
+    );
+  }
+}
 
 class _ResizeHandle extends StatelessWidget {
   final Color color;

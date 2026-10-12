@@ -1,20 +1,14 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pdf/pdf.dart';
 
 import '../../core/labels.dart';
 import '../../core/theme.dart';
-import '../../core/utils/file_saver.dart';
-import '../../data/exporters/excel_exporter.dart';
-import '../../data/exporters/export_utils.dart';
-import '../../data/exporters/pdf_exporter.dart';
 import '../../data/exporters/table_export_options.dart';
-import '../../data/exporters/word_exporter.dart';
 import '../../domain/models/column_definition.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
-import 'adaptive_table_layout.dart';
+import '../export/table_export_runner.dart';
+import 'adaptive_table_column.dart';
 
 /// The top header bar of the table layout.
 /// Displays titles, refresh buttons, columns selector, and print/export utilities.
@@ -29,11 +23,10 @@ class TableHeader<T> extends StatelessWidget {
   final bool showExport;
   final bool showPrint;
   final bool showColumnsToggle;
+  final bool showGroupingMenu;
   final List<Widget>? toolbarActions;
-  final TableExportOptions exportOptions;
+  final TableExportRunner<T> exportRunner;
   final double mobileBreakpoint;
-  final TableExportCallback<T>? onExportRequested;
-  final TablePrintCallback<T>? onPrintRequested;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -49,19 +42,26 @@ class TableHeader<T> extends StatelessWidget {
     required this.showExport,
     required this.showPrint,
     required this.showColumnsToggle,
+    this.showGroupingMenu = false,
     this.toolbarActions,
-    this.exportOptions = const TableExportOptions(),
+    required this.exportRunner,
     this.mobileBreakpoint = 600,
-    this.onExportRequested,
-    this.onPrintRequested,
     required this.theme,
     this.labels = AdaptiveTableLabels.en,
   });
 
+  TableExportOptions get _exportOptions => exportRunner.options;
+
+  List<AdaptiveTableColumn<T>> get _groupableColumns => [
+    for (final c in columns)
+      if (c.isGroupable && valueProviders.containsKey(c.id)) c,
+  ];
+
   bool get _hasActions =>
       onRefreshPressed != null ||
       showColumnsToggle ||
-      (showExport && exportOptions.formats.isNotEmpty) ||
+      (showGroupingMenu && _groupableColumns.isNotEmpty) ||
+      (showExport && _exportOptions.formats.isNotEmpty) ||
       showPrint ||
       onAddNewPressed != null ||
       (toolbarActions?.isNotEmpty ?? false);
@@ -69,18 +69,21 @@ class TableHeader<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<TableCubit<T>, TableCubitState<T>>(
+      // Errors and loading states keep the last toolbar (and its actions).
       buildWhen: (prev, next) {
-        if (prev is! TableLoaded<T> || next is! TableLoaded<T>) return true;
+        if (next is! TableLoaded<T>) return false;
+        if (prev is! TableLoaded<T>) return true;
         return prev.totalCount != next.totalCount ||
             !identical(prev.hiddenColumnIds, next.hiddenColumnIds) ||
-            prev.selectedItems.length != next.selectedItems.length;
+            prev.selectedItems.length != next.selectedItems.length ||
+            prev.tableState.groupByColumnId != next.tableState.groupByColumnId;
       },
       builder: (context, state) {
-        if (state is! TableLoaded<T>) return const SizedBox.shrink();
+        final loaded = state is TableLoaded<T> ? state : null;
         if (title == null && !_hasActions) return const SizedBox.shrink();
 
-        final titleBlock = title != null ? _buildTitle(state) : null;
-        final actions = _hasActions ? _buildActions(context, state) : null;
+        final titleBlock = title != null ? _buildTitle(loaded) : null;
+        final actions = _hasActions ? _buildActions(context, loaded) : null;
 
         return Container(
           decoration: BoxDecoration(
@@ -136,8 +139,8 @@ class TableHeader<T> extends StatelessWidget {
     );
   }
 
-  Widget _buildTitle(TableLoaded<T> state) {
-    final selectedCount = state.selectedItems.length;
+  Widget _buildTitle(TableLoaded<T>? state) {
+    final selectedCount = state?.selectedItems.length ?? 0;
     return Row(
       children: [
         if (titleIcon != null) ...[titleIcon!, const SizedBox(width: 10)],
@@ -155,8 +158,10 @@ class TableHeader<T> extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  _Badge(text: '${state.totalCount}', theme: theme),
+                  if (state != null) ...[
+                    const SizedBox(width: 8),
+                    _Badge(text: '${state.totalCount}', theme: theme),
+                  ],
                   if (selectedCount > 0) ...[
                     const SizedBox(width: 6),
                     _Badge(
@@ -189,7 +194,7 @@ class TableHeader<T> extends StatelessWidget {
     );
   }
 
-  Widget _buildActions(BuildContext context, TableLoaded<T> state) {
+  Widget _buildActions(BuildContext context, TableLoaded<T>? state) {
     final iconColor = theme.effectiveToolbarIconColor;
     return Wrap(
       spacing: 4,
@@ -203,8 +208,10 @@ class TableHeader<T> extends StatelessWidget {
             color: iconColor,
             onPressed: onRefreshPressed!,
           ),
+        if (showGroupingMenu && _groupableColumns.isNotEmpty)
+          _buildGroupingMenu(context, state, iconColor),
         if (showColumnsToggle) _buildColumnsToggler(context, iconColor),
-        if (showExport && exportOptions.formats.isNotEmpty)
+        if (showExport && _exportOptions.formats.isNotEmpty)
           _buildExportMenu(context, iconColor),
         if (showPrint)
           _ToolbarIconButton(
@@ -245,6 +252,63 @@ class TableHeader<T> extends StatelessWidget {
     );
   }
 
+  /// "Group by" menu: no grouping, or one of the groupable columns.
+  Widget _buildGroupingMenu(
+    BuildContext context,
+    TableLoaded<T>? state,
+    Color iconColor,
+  ) {
+    // The popup lives in the Navigator overlay, outside the BlocProvider.
+    final cubit = context.read<TableCubit<T>>();
+    final current = state?.tableState.groupByColumnId;
+    PopupMenuItem<String> item(String value, String text, bool selected) {
+      return PopupMenuItem<String>(
+        value: value,
+        height: 40,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              child: selected
+                  ? Icon(Icons.check, size: 18, color: theme.accentColor)
+                  : null,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                overflow: TextOverflow.ellipsis,
+                style: theme.rowTextStyle.copyWith(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w600 : null,
+                  color: selected ? theme.accentColor : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: labels.groupBy,
+      icon: Icon(
+        Icons.account_tree_outlined,
+        size: 20,
+        color: current == null ? iconColor : theme.accentColor,
+      ),
+      position: PopupMenuPosition.under,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      color: theme.cardBackgroundColor.withValues(alpha: 1),
+      onSelected: (id) => cubit.groupBy(id.isEmpty ? null : id),
+      itemBuilder: (_) => [
+        item('', labels.noGrouping, current == null),
+        const PopupMenuDivider(),
+        for (final c in _groupableColumns) item(c.id, c.title, current == c.id),
+      ],
+    );
+  }
+
   Widget _buildColumnsToggler(BuildContext context, Color iconColor) {
     // The popup lives in the Navigator overlay, outside the BlocProvider, so
     // the cubit is captured here and passed explicitly.
@@ -255,6 +319,9 @@ class TableHeader<T> extends StatelessWidget {
       position: PopupMenuPosition.under,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       color: theme.cardBackgroundColor.withValues(alpha: 1),
+      // The checkbox tiles have no intrinsic width of their own: without a
+      // minimum the titles wrap mid-word ("Curren / cy").
+      constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
       itemBuilder: (_) {
         return columns.map<PopupMenuEntry<String>>((col) {
             return PopupMenuItem<String>(
@@ -265,7 +332,7 @@ class TableHeader<T> extends StatelessWidget {
                 builder: (context, state) {
                   final hidden = state is TableLoaded<T>
                       ? state.hiddenColumnIds
-                      : const <String>[];
+                      : cubit.hiddenColumnIds;
                   final isVisible = !hidden.contains(col.id);
                   final visibleCount = columns.length - hidden.length;
                   final canToggle =
@@ -273,6 +340,8 @@ class TableHeader<T> extends StatelessWidget {
                   return CheckboxListTile(
                     title: Text(
                       col.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.rowTextStyle.copyWith(fontSize: 13),
                     ),
                     value: isVisible,
@@ -343,16 +412,6 @@ class TableHeader<T> extends StatelessWidget {
     );
   }
 
-  /// Column definitions in the user's display order (drag & drop / pins).
-  List<ColumnDefinition> _orderedDefinitions(TableLoaded<T> state) {
-    final visible = state.arrange(columns, (c) => c.definition);
-    return [
-      ...visible.map((c) => c.definition),
-      // Hidden columns are skipped by the exporters anyway.
-      ...columns.where((c) => !visible.contains(c)).map((c) => c.definition),
-    ];
-  }
-
   Widget _buildExportMenu(BuildContext context, Color iconColor) {
     PopupMenuItem<ExportFormat> item(
       ExportFormat format,
@@ -372,7 +431,7 @@ class TableHeader<T> extends StatelessWidget {
       );
     }
 
-    final formats = exportOptions.formats;
+    final formats = _exportOptions.formats;
     return PopupMenuButton<ExportFormat>(
       tooltip: labels.exportData,
       icon: Icon(Icons.download_outlined, color: iconColor, size: 20),
@@ -387,6 +446,13 @@ class TableHeader<T> extends StatelessWidget {
             Icons.table_view,
             Colors.green.shade600,
             labels.exportExcel,
+          ),
+        if (formats.contains(ExportFormat.csv))
+          item(
+            ExportFormat.csv,
+            Icons.grid_on_outlined,
+            Colors.teal.shade600,
+            labels.exportCsv,
           ),
         if (formats.contains(ExportFormat.word))
           item(
@@ -406,157 +472,24 @@ class TableHeader<T> extends StatelessWidget {
     );
   }
 
-  // --- Export helpers ---
-
-  /// Rows to export: the selected ones (if any and enabled) otherwise every
-  /// filtered row, in the current sort order.
-  List<T> _rowsToExport(TableLoaded<T> state) {
-    if (exportOptions.exportSelectedWhenAny && state.selectedItems.isNotEmpty) {
-      final selected = state.selectedItems.toSet();
-      return state.filteredAndSortedItems.where(selected.contains).toList();
-    }
-    return state.filteredAndSortedItems;
-  }
-
-  Map<String, ExportValueFormatter> get _formatters => {
-    for (final c in columns)
-      if (c.valueFormatter != null) c.id: c.valueFormatter!,
-  };
-
-  String get _reportTitle => title ?? labels.defaultReportTitle;
-
-  PdfColor get _pdfAccent => PdfColor.fromInt(theme.accentColor.toARGB32());
-
-  String get _hexAccent =>
-      '#${(theme.accentColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
-
   Future<void> _export(BuildContext context, ExportFormat format) async {
-    final cubit = context.read<TableCubit<T>>();
-    final state = cubit.state;
+    final state = context.read<TableCubit<T>>().state;
     if (state is! TableLoaded<T>) return;
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final rows = _rowsToExport(state);
-    if (onExportRequested != null) {
-      try {
-        await onExportRequested!(format, rows);
-      } catch (e) {
-        _showSnackbar(messenger, labels.exportFailed(format.name, e));
-      }
-      return;
-    }
-    final definitions = _orderedDefinitions(state);
-    final hidden = state.hiddenColumnIds;
-    final formatLabel = switch (format) {
-      ExportFormat.excel => 'Excel',
-      ExportFormat.word => 'Word',
-      ExportFormat.pdf => 'PDF',
-    };
-
-    try {
-      final Uint8List bytes = switch (format) {
-        ExportFormat.excel => await const ExcelExporter().generateExcel<T>(
-          sheetName: _reportTitle,
-          columns: definitions,
-          items: rows,
-          valueProviders: valueProviders,
-          hiddenColumnIds: hidden,
-          isRtl: isRtl,
-          headerColor: _hexAccent,
-        ),
-        ExportFormat.word => await const WordExporter().generateWord<T>(
-          title: _reportTitle,
-          subtitle: subtitle,
-          columns: definitions,
-          items: rows,
-          valueProviders: valueProviders,
-          isRtl: isRtl,
-          hiddenColumnIds: hidden,
-          formatters: _formatters,
-          exportedOnLabel: labels.exportedOn,
-          accentColor: _hexAccent,
-        ),
-        ExportFormat.pdf =>
-          await PdfExporter(
-            font: exportOptions.pdfFont,
-            boldFont: exportOptions.pdfBoldFont,
-          ).generatePdf<T>(
-            title: _reportTitle,
-            subtitle: subtitle,
-            columns: definitions,
-            items: rows,
-            valueProviders: valueProviders,
-            isRtl: isRtl,
-            hiddenColumnIds: hidden,
-            formatters: _formatters,
-            pageFormat: exportOptions.pdfPageFormat,
-            accentColor: _pdfAccent,
-          ),
-      };
-
-      final fileName = ExportUtils.sanitizeFileName(
-        exportOptions.fileName ?? _reportTitle,
-        extension: format.extension,
-      );
-
-      if (exportOptions.onExport != null) {
-        await exportOptions.onExport!(format, bytes, fileName);
-        return;
-      }
-
-      final savedPath = await saveAndShareFile(
-        bytes: bytes,
-        fileName: fileName,
-        mimeType: format.mimeType,
-      );
-      final isDesktop =
-          !kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.windows ||
-              defaultTargetPlatform == TargetPlatform.macOS ||
-              defaultTargetPlatform == TargetPlatform.linux);
-      if (isDesktop && savedPath != null) {
-        _showSnackbar(messenger, labels.savedTo(savedPath));
-      }
-    } catch (e) {
-      _showSnackbar(messenger, labels.exportFailed(formatLabel, e));
-    }
+    await exportRunner.export(
+      format,
+      state: state,
+      isRtl: Directionality.of(context) == TextDirection.rtl,
+      messenger: ScaffoldMessenger.maybeOf(context),
+    );
   }
 
   Future<void> _printPdf(BuildContext context) async {
     final state = context.read<TableCubit<T>>().state;
     if (state is! TableLoaded<T>) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    try {
-      if (onPrintRequested != null) {
-        await onPrintRequested!(_rowsToExport(state));
-        return;
-      }
-      await PdfExporter(
-        font: exportOptions.pdfFont,
-        boldFont: exportOptions.pdfBoldFont,
-      ).printTable<T>(
-        title: _reportTitle,
-        subtitle: subtitle,
-        columns: _orderedDefinitions(state),
-        items: _rowsToExport(state),
-        valueProviders: valueProviders,
-        isRtl: isRtl,
-        hiddenColumnIds: state.hiddenColumnIds,
-        formatters: _formatters,
-        pageFormat: exportOptions.pdfPageFormat,
-        accentColor: _pdfAccent,
-      );
-    } catch (e) {
-      _showSnackbar(messenger, labels.exportFailed(labels.print, e));
-    }
-  }
-
-  void _showSnackbar(ScaffoldMessengerState? messenger, String message) {
-    if (messenger == null || !messenger.mounted) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    await exportRunner.printTable(
+      state: state,
+      isRtl: Directionality.of(context) == TextDirection.rtl,
+      messenger: ScaffoldMessenger.maybeOf(context),
     );
   }
 }

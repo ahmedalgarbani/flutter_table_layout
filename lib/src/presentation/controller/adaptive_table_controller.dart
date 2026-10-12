@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../data/exporters/table_export_options.dart';
 import '../../domain/models/column_definition.dart';
+import '../../domain/models/table_snapshot.dart';
 import '../../domain/models/table_state_model.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
 
 /// Drives an `AdaptiveTableLayout` from the outside: search, filter, sort,
-/// paginate, select, and read the current result.
+/// paginate, select, export, and read the current result.
 ///
 /// ```dart
 /// final controller = AdaptiveTableController<Invoice>();
@@ -18,6 +20,7 @@ import '../cubit/table_cubit_state.dart';
 /// controller.search('paid');
 /// controller.setCustomFilter('status', 'open');
 /// final picked = controller.selectedItems;
+/// await controller.exportAs(ExportFormat.pdf);
 /// ```
 ///
 /// The controller notifies its listeners on every table state change, so it
@@ -25,6 +28,11 @@ import '../cubit/table_cubit_state.dart';
 class AdaptiveTableController<T> extends ChangeNotifier {
   TableCubit<T>? _cubit;
   StreamSubscription<TableCubitState<T>>? _subscription;
+  bool _disposed = false;
+
+  Future<void> Function(ExportFormat format, List<T>? rows)? _export;
+  Future<void> Function(List<T>? rows)? _print;
+  Future<int> Function(List<T>? rows)? _copy;
 
   /// Whether the controller is attached to a live table.
   bool get isAttached => _cubit != null;
@@ -62,6 +70,9 @@ class AdaptiveTableController<T> extends ChangeNotifier {
   /// IDs of columns hidden by the user.
   List<String> get hiddenColumnIds => _cubit?.hiddenColumnIds ?? const [];
 
+  /// Footer totals (column id → value) of the columns with an aggregate.
+  Map<String, Object?> get aggregates => value?.aggregates ?? const {};
+
   void search(String query) => cubit.updateSearchQuery(query);
   void setDateRange(DateTime? start, DateTime? end) =>
       cubit.updateDateRange(start, end);
@@ -85,6 +96,13 @@ class AdaptiveTableController<T> extends ChangeNotifier {
   void clearSelection() => cubit.clearSelection();
   void toggleRowExpansion(T item) => cubit.toggleRowExpansion(item);
 
+  /// Like a click on a column header (see [TableCubit.toggleSort]).
+  void toggleSort(
+    String columnId, {
+    bool additive = false,
+    bool tristate = false,
+  }) => cubit.toggleSort(columnId, additive: additive, tristate: tristate);
+
   /// Adds a secondary sort level (like Shift + click on a header).
   void addSort(String columnId, {bool ascending = true}) =>
       cubit.sortBy(columnId, ascending: ascending, additive: true);
@@ -94,6 +112,13 @@ class AdaptiveTableController<T> extends ChangeNotifier {
   void clearColumnFilters() => cubit.clearColumnFilters();
   void groupBy(String? columnId) => cubit.groupBy(columnId);
   void toggleGroup(String groupKey) => cubit.toggleGroupCollapsed(groupKey);
+
+  /// Collapses the given groups (or expands all when [groupKeys] is empty).
+  void setCollapsedGroups(Iterable<String> groupKeys) =>
+      cubit.setCollapsedGroups(groupKeys);
+
+  /// Closes every expanded row.
+  void collapseAllRows() => cubit.collapseAll();
   void setColumnWidth(String columnId, double width) =>
       cubit.setColumnWidth(columnId, width);
   void moveColumn(String columnId, {String? beforeColumnId}) =>
@@ -104,11 +129,43 @@ class AdaptiveTableController<T> extends ChangeNotifier {
       cubit.setColumnPin(columnId, pin);
   void resetColumnLayout() => cubit.resetColumnLayout();
 
+  /// Restores the initial filters, sort and page size, and clears the
+  /// selection.
+  void resetAll() => cubit.resetAll();
+
+  /// The current query and column layout, e.g. to persist them.
+  TableSnapshot get snapshot => cubit.snapshot;
+
+  /// Restores a query and column layout saved from [snapshot].
+  void restoreSnapshot(TableSnapshot snapshot) =>
+      cubit.restoreSnapshot(snapshot);
+
   /// Re-runs the query; with a server data source, reloads the current page.
   void refresh() => cubit.refresh();
 
   /// Whether a server request is in flight.
   bool get isFetching => _cubit?.isFetching ?? false;
+
+  /// Exports [rows] (default: the selected rows, or every filtered row) like
+  /// the toolbar's export menu does.
+  Future<void> exportAs(ExportFormat format, {List<T>? rows}) =>
+      _action(_export)(format, rows);
+
+  /// Opens the print dialog for [rows] (default: as the toolbar does).
+  Future<void> printTable({List<T>? rows}) => _action(_print)(rows);
+
+  /// Copies [rows] (default: the selected rows, or every filtered row) to
+  /// the clipboard as tab-separated text. Returns the number of rows.
+  Future<int> copyToClipboard({List<T>? rows}) => _action(_copy)(rows);
+
+  F _action<F extends Function>(F? action) {
+    if (action == null) {
+      throw StateError(
+        'AdaptiveTableController is not attached to an AdaptiveTableLayout.',
+      );
+    }
+    return action;
+  }
 
   /// Called by the table. Not meant for app code.
   void attach(TableCubit<T> cubit) {
@@ -116,6 +173,22 @@ class AdaptiveTableController<T> extends ChangeNotifier {
     detach();
     _cubit = cubit;
     _subscription = cubit.stream.listen((_) => notifyListeners());
+    // Listeners built before the table see its first state (scheduled: the
+    // table attaches while it is being built).
+    scheduleMicrotask(() {
+      if (!_disposed && identical(_cubit, cubit)) notifyListeners();
+    });
+  }
+
+  /// Called by the table. Not meant for app code.
+  void bindActions({
+    required Future<void> Function(ExportFormat format, List<T>? rows) export,
+    required Future<void> Function(List<T>? rows) print,
+    required Future<int> Function(List<T>? rows) copy,
+  }) {
+    _export = export;
+    _print = print;
+    _copy = copy;
   }
 
   /// Called by the table. Not meant for app code.
@@ -124,10 +197,14 @@ class AdaptiveTableController<T> extends ChangeNotifier {
     _subscription?.cancel();
     _subscription = null;
     _cubit = null;
+    _export = null;
+    _print = null;
+    _copy = null;
   }
 
   @override
   void dispose() {
+    _disposed = true;
     detach();
     super.dispose();
   }

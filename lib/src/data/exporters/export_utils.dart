@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../domain/models/column_definition.dart';
 
 /// Converts any cell value into the text written to PDF / Word exports.
@@ -6,6 +8,42 @@ typedef ExportValueFormatter = String Function(dynamic value);
 /// Helpers shared by the exporters.
 class ExportUtils {
   const ExportUtils._();
+
+  /// The cells of a totals row for [columns]: `values[i]` is the total of
+  /// column `i` (or `null`). The "Total" label goes to `labelIndex`: the first
+  /// column when it has no total of its own, otherwise nowhere (`-1`).
+  static ({int labelIndex, List<Object?> values}) totalsRow(
+    List<ColumnDefinition> columns,
+    Map<String, Object?> totals,
+  ) {
+    final hasRoom = columns.isNotEmpty && !totals.containsKey(columns.first.id);
+    return (
+      labelIndex: hasRoom ? 0 : -1,
+      values: [for (final c in columns) totals[c.id]],
+    );
+  }
+
+  /// Whether dark text reads better than white text on [argb] (same
+  /// estimate as Flutter's `ThemeData.estimateBrightnessForColor`).
+  static bool isLightColor(int argb) {
+    double channel(int shift) {
+      final c = ((argb >> shift) & 0xFF) / 255;
+      return c <= 0.03928
+          ? c / 12.92
+          : math.pow((c + 0.055) / 1.055, 2.4).toDouble();
+    }
+
+    final luminance =
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0);
+    return (luminance + 0.05) * (luminance + 0.05) > 0.15;
+  }
+
+  /// `#000000` or `#FFFFFF`, whichever is readable on the `#RRGGBB` [hex].
+  static String textHexOn(String hex) {
+    final value = int.tryParse(hex.replaceAll('#', ''), radix: 16);
+    if (value == null) return '#FFFFFF';
+    return isLightColor(value) ? '#000000' : '#FFFFFF';
+  }
 
   /// Columns that should be written to an export: visible, exportable, and not
   /// hidden by the user.

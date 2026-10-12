@@ -241,13 +241,16 @@ void main() {
       size: const Size(390, 1600),
     );
     expect(tester.takeException(), isNull);
-    // Card title (id) and subtitle (name).
+    // The id column makes a poor title: the first text column (name) is the
+    // card title, the next column (joined) its subtitle.
     expect(find.text('Person 1'), findsOneWidget);
-    expect(find.text('Joined'), findsNothing);
-    await tester.tap(find.byIcon(Icons.expand_more).first);
-    await tester.pumpAndSettle();
-    expect(find.text('Joined'), findsOneWidget);
     expect(find.text('2026-01-01'), findsOneWidget);
+    expect(find.text('ID'), findsNothing);
+    await tester.tap(find.byTooltip('Expand').first);
+    await tester.pumpAndSettle();
+    // The remaining column is listed in the details.
+    expect(find.text('ID'), findsOneWidget);
+    expect(find.byTooltip('Collapse'), findsOneWidget);
   });
 
   testWidgets('expandedRowBuilder opens on row tap (desktop)', (tester) async {

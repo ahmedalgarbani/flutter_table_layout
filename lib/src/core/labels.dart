@@ -62,6 +62,26 @@ class AdaptiveTableLabels {
   final String previousMonth;
   final String nextMonth;
   final String invalidDate;
+  final String exportCsv;
+  final String sortBy;
+  final String ascending;
+  final String descending;
+  final String noSorting;
+  final String total;
+  final String sum;
+  final String average;
+  final String minimum;
+  final String maximum;
+  final String count;
+  final String allRows;
+  final String save;
+  final String noMatches;
+
+  /// Placeholder of an empty selector: `"Select Currency…"`.
+  final String Function(String field) selectPlaceholder;
+
+  /// Snackbar after a copy: `"Copied to clipboard"` / `"3 rows copied"`.
+  final String Function(int rows) copied;
 
   /// `"Page 2 of 5 (48 items)"`.
   final String Function(int page, int totalPages, int totalItems) pageStatus;
@@ -135,6 +155,22 @@ class AdaptiveTableLabels {
     this.previousMonth = 'Previous month',
     this.nextMonth = 'Next month',
     this.invalidDate = 'Use yyyy-mm-dd',
+    this.exportCsv = 'Export CSV',
+    this.sortBy = 'Sort by',
+    this.ascending = 'Ascending',
+    this.descending = 'Descending',
+    this.noSorting = 'Default order',
+    this.total = 'Total',
+    this.sum = 'Sum',
+    this.average = 'Average',
+    this.minimum = 'Minimum',
+    this.maximum = 'Maximum',
+    this.count = 'Count',
+    this.allRows = 'All',
+    this.save = 'Save',
+    this.noMatches = 'No items found',
+    this.selectPlaceholder = _enSelectPlaceholder,
+    this.copied = _enCopied,
     required this.pageStatus,
     required this.rangeStatus,
     required this.selectedCount,
@@ -200,6 +236,22 @@ class AdaptiveTableLabels {
     previousMonth: 'Previous month',
     nextMonth: 'Next month',
     invalidDate: 'Use yyyy-mm-dd',
+    exportCsv: 'Export CSV',
+    sortBy: 'Sort by',
+    ascending: 'Ascending',
+    descending: 'Descending',
+    noSorting: 'Default order',
+    total: 'Total',
+    sum: 'Sum',
+    average: 'Average',
+    minimum: 'Minimum',
+    maximum: 'Maximum',
+    count: 'Count',
+    allRows: 'All',
+    save: 'Save',
+    noMatches: 'No items found',
+    selectPlaceholder: _enSelectPlaceholder,
+    copied: _enCopied,
     pageStatus: _enPageStatus,
     rangeStatus: _enRangeStatus,
     selectedCount: _enSelectedCount,
@@ -264,6 +316,22 @@ class AdaptiveTableLabels {
     previousMonth: 'الشهر السابق',
     nextMonth: 'الشهر التالي',
     invalidDate: 'اكتب التاريخ بصيغة yyyy-mm-dd',
+    exportCsv: 'تصدير CSV',
+    sortBy: 'ترتيب حسب',
+    ascending: 'تصاعدي',
+    descending: 'تنازلي',
+    noSorting: 'الترتيب الافتراضي',
+    total: 'الإجمالي',
+    sum: 'المجموع',
+    average: 'المتوسط',
+    minimum: 'الأدنى',
+    maximum: 'الأعلى',
+    count: 'العدد',
+    allRows: 'الكل',
+    save: 'حفظ',
+    noMatches: 'لا توجد عناصر',
+    selectPlaceholder: _arSelectPlaceholder,
+    copied: _arCopied,
     pageStatus: _arPageStatus,
     rangeStatus: _arRangeStatus,
     selectedCount: _arSelectedCount,
@@ -339,6 +407,22 @@ class AdaptiveTableLabels {
     String? previousMonth,
     String? nextMonth,
     String? invalidDate,
+    String? exportCsv,
+    String? sortBy,
+    String? ascending,
+    String? descending,
+    String? noSorting,
+    String? total,
+    String? sum,
+    String? average,
+    String? minimum,
+    String? maximum,
+    String? count,
+    String? allRows,
+    String? save,
+    String? noMatches,
+    String Function(String field)? selectPlaceholder,
+    String Function(int rows)? copied,
     String Function(int page, int totalPages, int totalItems)? pageStatus,
     String Function(int from, int to, int total)? rangeStatus,
     String Function(int count)? selectedCount,
@@ -401,6 +485,22 @@ class AdaptiveTableLabels {
       previousMonth: previousMonth ?? this.previousMonth,
       nextMonth: nextMonth ?? this.nextMonth,
       invalidDate: invalidDate ?? this.invalidDate,
+      exportCsv: exportCsv ?? this.exportCsv,
+      sortBy: sortBy ?? this.sortBy,
+      ascending: ascending ?? this.ascending,
+      descending: descending ?? this.descending,
+      noSorting: noSorting ?? this.noSorting,
+      total: total ?? this.total,
+      sum: sum ?? this.sum,
+      average: average ?? this.average,
+      minimum: minimum ?? this.minimum,
+      maximum: maximum ?? this.maximum,
+      count: count ?? this.count,
+      allRows: allRows ?? this.allRows,
+      save: save ?? this.save,
+      noMatches: noMatches ?? this.noMatches,
+      selectPlaceholder: selectPlaceholder ?? this.selectPlaceholder,
+      copied: copied ?? this.copied,
       pageStatus: pageStatus ?? this.pageStatus,
       rangeStatus: rangeStatus ?? this.rangeStatus,
       selectedCount: selectedCount ?? this.selectedCount,
@@ -418,6 +518,9 @@ String _enSelectedCount(int count) => '$count selected';
 String _enExportFailed(String format, Object error) =>
     '$format export failed: $error';
 String _enSavedTo(String path) => 'Saved to $path';
+String _enSelectPlaceholder(String field) => 'Select $field…';
+String _enCopied(int rows) =>
+    rows <= 1 ? 'Copied to clipboard' : '$rows rows copied';
 
 String _arPageStatus(int page, int totalPages, int totalItems) =>
     'صفحة $page من $totalPages ($totalItems عنصر)';
@@ -426,3 +529,5 @@ String _arSelectedCount(int count) => 'تم تحديد $count';
 String _arExportFailed(String format, Object error) =>
     'فشل تصدير $format: $error';
 String _arSavedTo(String path) => 'تم الحفظ في $path';
+String _arSelectPlaceholder(String field) => 'اختر $field…';
+String _arCopied(int rows) => rows <= 1 ? 'تم النسخ' : 'تم نسخ الصفوف: $rows';

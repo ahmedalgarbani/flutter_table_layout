@@ -48,6 +48,9 @@ class ColumnDefinition {
   /// Whether cells of this column can be edited inline (desktop grid).
   final bool isEditable;
 
+  /// Whether the column is offered in the toolbar's "Group by" menu.
+  final bool isGroupable;
+
   /// Initial frozen position.
   final ColumnPin pin;
 
@@ -75,6 +78,7 @@ class ColumnDefinition {
     this.isFilterable = true,
     this.isResizable = true,
     this.isEditable = false,
+    this.isGroupable = true,
     this.pin = ColumnPin.none,
     this.width,
     this.minWidth = 60,
@@ -99,6 +103,7 @@ class ColumnDefinition {
     bool? isFilterable,
     bool? isResizable,
     bool? isEditable,
+    bool? isGroupable,
     ColumnPin? pin,
     double? width,
     bool clearWidth = false,
@@ -118,6 +123,7 @@ class ColumnDefinition {
       isFilterable: isFilterable ?? this.isFilterable,
       isResizable: isResizable ?? this.isResizable,
       isEditable: isEditable ?? this.isEditable,
+      isGroupable: isGroupable ?? this.isGroupable,
       pin: pin ?? this.pin,
       width: clearWidth ? null : (width ?? this.width),
       minWidth: minWidth ?? this.minWidth,
@@ -141,6 +147,7 @@ class ColumnDefinition {
           other.isFilterable == isFilterable &&
           other.isResizable == isResizable &&
           other.isEditable == isEditable &&
+          other.isGroupable == isGroupable &&
           other.pin == pin &&
           other.width == width &&
           other.minWidth == minWidth &&
@@ -160,6 +167,7 @@ class ColumnDefinition {
     isFilterable,
     isResizable,
     isEditable,
+    isGroupable,
     pin,
     width,
     minWidth,

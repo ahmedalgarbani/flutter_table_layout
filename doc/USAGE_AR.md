@@ -41,8 +41,38 @@ AdaptiveTableLayout<Employee>(
 ```
 
 - **الشاشات الكبيرة:** جدول.
-- **الجوال** (أقل من 600px): بطاقات تلقائياً.
+- **الجوال** (أقل من 600px): بطاقات تلقائياً، عنوانها أول عمود نصي (وليس عمود الرقم)، وفوقها شريط "ترتيب حسب" لأن الجوال بلا رؤوس أعمدة.
 - **النصوص:** تظهر بالعربية تلقائياً إذا كانت لغة التطبيق `ar`.
+
+### البحث يفهم العربية
+- `احمد` يجد `أحمد` و`إيمان` يجد `ايمان` (توحيد الهمزات `أ إ آ`).
+- `مدرسه` يجد `مدرسة`، و`مصطفي` يجد `مصطفى`.
+- التشكيل والتطويل لا يؤثران: `محمد` يجد `مُحَمَّد`.
+- الأرقام الهندية تساوي العادية: `١٥٠٠` يجد `1500`.
+- يطابق أيضاً النص المعروض في الخلية (من `valueFormatter`)، مثل `1,500.00` أو تاريخ بصيغتك.
+
+نفس القواعد تنطبق على فلتر الأعمدة وعلى ترتيب النصوص. لمطابقة عادية بدون هذا التوحيد: `textNormalizer: TableTextNormalizer.caseInsensitive`.
+
+### صف الإجماليات
+```dart
+AdaptiveTableColumn<Employee>(
+  id: 'salary',
+  title: 'الراتب',
+  alignment: TableColumnAlignment.end,
+  valueFormatter: (v) => money.format(v), // يُستخدم لتنسيق الإجمالي أيضاً
+  aggregate: TableAggregate.sum,          // أو average / min / max / count
+),
+AdaptiveTableColumn<Employee>(
+  id: 'balance',
+  title: 'الرصيد',
+  aggregator: (rows) => rows.fold<double>(0, (s, r) => s + r.debit - r.credit), // حساب خاص
+),
+```
+- يظهر صف "الإجمالي" أسفل الجدول محاذياً للأعمدة (حتى المثبتة منها)، ويبقى ظاهراً أثناء التمرير.
+- يحسب **كل الصفوف المفلترة** (كل الصفحات)، ويتحدّث مع البحث والفلاتر.
+- في الجوال يظهر في لوحة أسفل البطاقات.
+- يُضاف إلى ملفات Excel وCSV وWord وPDF والطباعة (للتعطيل: `TableExportOptions(includeTotals: false)`).
+- من السيرفر: أرجع `TableDataPage(aggregates: {'salary': 12345})` لإجمالي كل الصفوف، وإلا يُحسب إجمالي الصفحة الحالية.
 
 ### فلتر التاريخ (زر "الفترة")
 عند تمرير `dateProvider` يظهر زر واحد: "📅 الفترة: هذا الشهر ▾"، وبجانبه ✕ للمسح. عند الضغط عليه:
@@ -137,6 +167,7 @@ controller.setSorts(const [ColumnSort('department'), ColumnSort('salary', ascend
 ```dart
 AdaptiveTableLayout<Employee>(
   groupByColumnId: 'department',
+  showGroupingMenu: true, // قائمة "تجميع حسب" في شريط الأدوات
   groupHeaderBuilder: (context, group) => Text(
     'المتوسط: ${group.rows.fold<double>(0, (s, e) => s + e.salary) / group.rows.length}',
   ),
@@ -144,6 +175,7 @@ AdaptiveTableLayout<Employee>(
 ```
 - انقر على رأس المجموعة لطيّها أو فتحها.
 - يمكن التغيير من الكود: `controller.groupBy('city')` أو `controller.groupBy(null)`.
+- في القائمة تظهر الأعمدة التي لها `valueProvider`؛ استخدم `isGroupable: false` للأعمدة التي لا معنى لتجميعها (الأرقام والمبالغ والتواريخ).
 
 ### التعديل المباشر داخل الخلية
 ```dart
@@ -168,18 +200,22 @@ AdaptiveTableLayout<Employee>(
 - **البدء:** نقرتان على الخلية، أو Enter، أو F2.
 - **الحفظ:** Enter، أو النقر خارج الخلية.
 - **الإلغاء:** Esc.
-- **التنقل:** Tab للخلية التالية، وShift+Tab للسابقة.
+- **التنقل:** Tab للخلية القابلة للتعديل التالية، وShift+Tab للسابقة.
 - **الأرقام:** تقبل `1,250.5`.
 - **القيمة غير الصحيحة:** تُبقي المحرر مفتوحاً مع رسالة الخطأ.
 
 ### التحكم بلوحة المفاتيح
 - **الأسهم:** التنقل بين الخلايا (معكوسة تلقائياً في العربية).
+- **Tab / Shift+Tab:** الخلية التالية / السابقة، وبعد آخر خلية يخرج التركيز من الجدول (لا يُحبس فيه).
 - **Space:** تحديد الصف.
 - **Enter:** تعديل الخلية، أو فتح الصف.
 - **Home / End:** أول / آخر عمود.
-- **Page Up / Down:** الصفحة السابقة / التالية.
+- **Page Up / Down:** الصفحة السابقة / التالية (أو 10 صفوف بدون ترقيم).
 - **Ctrl+A:** تحديد الكل.
+- **Ctrl+C:** نسخ الصفوف المحددة (أو الخلية) لتلصقها في Excel.
 - **Esc:** الخروج من الخلية.
+
+الكتابة داخل خانات فلتر الأعمدة لا تُعتبر تنقلاً في الجدول.
 
 للتعطيل: `enableKeyboardNavigation: false`.
 
@@ -206,7 +242,24 @@ AdaptiveTableLayout<Employee>(
 ```
 - كل تغيير في البحث أو الفلاتر أو الفرز أو الصفحة يستدعي السيرفر.
 - يظهر شريط تحميل أثناء الطلب، وتُتجاهل الردود القديمة.
-- عند الخطأ يظهر زر **إعادة المحاولة**، ويمكن أيضاً استدعاء `controller.refresh()`.
+- عند الخطأ يظهر زر **إعادة المحاولة** ويبقى شريط الأدوات والبحث قابلين للاستخدام، ويمكن أيضاً استدعاء `controller.refresh()`.
+- مع `rowKey` يبقى التحديد بين الصفحات.
+
+### هوية الصفوف (`rowKey`)
+```dart
+AdaptiveTableLayout<Employee>(rowKey: (e) => e.id, ...)
+```
+إذا كانت نماذجك ثابتة (تُحدَّث بـ `copyWith`) أو تأتي من السيرفر، فكل تحديث يُنشئ كائنات جديدة ويضيع التحديد. مع `rowKey` يبقى التحديد والصفوف المفتوحة بعد التحديث وبين صفحات السيرفر.
+
+### حفظ حالة الجدول واستعادتها
+```dart
+AdaptiveTableLayout<Employee>(
+  initialSnapshot: TableSnapshot.tryDecode(prefs.getString('employees')),
+  onSnapshotChanged: (s) => prefs.setString('employees', s.encode()),
+  ...
+)
+```
+يحفظ البحث والفلاتر والفرز والتجميع والصفحة، وإخفاء الأعمدة وعرضها وترتيبها وتثبيتها. من الكود: `controller.snapshot` و`controller.restoreSnapshot(...)`.
 
 ---
 
@@ -247,7 +300,11 @@ AdaptiveTableLayout<Employee>(
 | تنسيق القيمة | `valueFormatter: (v) => ...` |
 | لون صف معيّن | `rowColorBuilder: (e) => ...` |
 | جدول دائماً أو بطاقات دائماً | `layoutMode: TableLayoutMode.table` / `.cards` |
-| الألوان والتصميم | `theme: AdaptiveTableTheme.light(context).copyWith(...)` |
+| الألوان والتصميم | `theme: AdaptiveTableTheme.material(context)` أو `AdaptiveTableTheme.light(context).copyWith(...)` |
+| ارتفاع الصفوف | `density: TableDensity.compact` أو `comfortable` |
+| خيار "الكل" في عدد الصفوف | `pageSizes: const [10, 25, 50, 0]` |
+| حذف الفرز بالنقرة الثالثة | `tristateSort: true` |
+| تصدير CSV | موجود افتراضياً في قائمة التصدير (`ExportFormat.csv`) |
 | كل النصوص | `labels: AdaptiveTableLabels.ar.copyWith(search: '...')` |
 
 ---
@@ -268,6 +325,9 @@ controller.goToPage(2);
 controller.selectAll();
 final selected = controller.selectedItems;
 final filtered = controller.filteredItems;
+final totals = controller.aggregates;          // الإجماليات
+await controller.exportAs(ExportFormat.excel); // مثل قائمة التصدير
+await controller.copyToClipboard();            // نسخ الصفوف
 controller.resetFilters();
 controller.refresh();
 ```

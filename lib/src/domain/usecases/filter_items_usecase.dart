@@ -1,6 +1,10 @@
 import '../models/column_definition.dart';
 import '../models/column_filter.dart';
 import '../models/table_state_model.dart';
+import '../utils/table_text_normalizer.dart';
+
+/// Converts a raw cell value into the text displayed in the table.
+typedef DisplayFormatter = String Function(dynamic value);
 
 /// The full output of a [FilterItemsUseCase] pass.
 class TableQueryResult<T> {
@@ -35,13 +39,26 @@ class TableQueryResult<T> {
 /// 1. date range (via `dateProvider`, compared by calendar day, both ends inclusive)
 /// 2. custom filters (via `customFilterMatcher`)
 /// 3. per-column filters (`TableStateModel.columnFilters`)
-/// 4. global search (case-insensitive, over visible + searchable columns)
+/// 4. global search (over visible + searchable columns, raw and displayed text)
 /// 5. stable multi-level sort (group column first when grouping; nulls last)
 /// 6. pagination (the requested page is clamped to the last available page)
+///
+/// Text is compared through [textNormalizer]: by default case-insensitive and
+/// tolerant of Arabic spelling variants (see [TableTextNormalizer.normalize]).
 class FilterItemsUseCase {
-  const FilterItemsUseCase();
+  /// Applied to cell text and to what the user typed before they are compared
+  /// (search, column filters, and the order of text values when sorting).
+  final TextNormalizer textNormalizer;
+
+  const FilterItemsUseCase({
+    this.textNormalizer = TableTextNormalizer.normalize,
+  });
 
   /// Runs the whole pipeline and returns a detailed [TableQueryResult].
+  ///
+  /// [displayFormatters] (column id → formatter) let the search and the
+  /// column filters also match the text shown in the cells, e.g. `1,500.00`
+  /// for a raw `1500` or `05/01/2026` for a date.
   TableQueryResult<T> apply<T>({
     required List<T> items,
     required List<ColumnDefinition> columns,
@@ -50,6 +67,7 @@ class FilterItemsUseCase {
     DateTime? Function(T item)? dateProvider,
     bool Function(T item, Map<String, dynamic> filters)? customFilterMatcher,
     Set<String> hiddenColumnIds = const {},
+    Map<String, DisplayFormatter>? displayFormatters,
   }) {
     Iterable<T> result = items;
 
@@ -77,29 +95,37 @@ class FilterItemsUseCase {
       );
     }
 
-    // 3. Per-column filters
-    final activeColumnFilters = {
+    // 3. Per-column filters (each expression is parsed once).
+    final columnFilters = [
       for (final e in state.columnFilters.entries)
         if (e.value.trim().isNotEmpty && valueProviders?[e.key] != null)
-          e.key: e.value,
-    };
-    if (activeColumnFilters.isNotEmpty) {
+          (
+            valueProviders![e.key]!,
+            ColumnFilterMatcher.parse(e.value, normalize: textNormalizer),
+            displayFormatters?[e.key],
+          ),
+    ];
+    if (columnFilters.isNotEmpty) {
       result = result.where((item) {
-        for (final e in activeColumnFilters.entries) {
-          final value = valueProviders![e.key]!(item) as Object?;
-          if (!ColumnFilterMatcher.matches(value, e.value)) return false;
+        for (final (provider, matcher, formatter) in columnFilters) {
+          final value = provider(item) as Object?;
+          final display = formatter == null
+              ? null
+              : () => _safeFormat(formatter, value);
+          if (!matcher.test(value, display)) return false;
         }
         return true;
       });
     }
 
     // 4. Global search
-    final query = state.searchQuery.trim().toLowerCase();
+    final query = textNormalizer(state.searchQuery.trim());
     if (query.isNotEmpty) {
       final extractors = _searchExtractors(
         columns,
         valueProviders,
         hiddenColumnIds,
+        displayFormatters,
       );
       result = result.where(
         (item) => _matchesQuery(item, query, extractors, valueProviders),
@@ -123,12 +149,15 @@ class FilterItemsUseCase {
           (valueProviders![level.columnId]!, level.ascending),
     ];
     if (extractors.isNotEmpty) {
+      // Text is compared in its normalized form, so `أحمد` and `احمد` sort
+      // together, consistently with the search.
+      Object? sortKey(Object? v) => v is String ? textNormalizer(v) : v;
       final indexed = List<(int, T, List<Object?>)>.generate(
         filtered.length,
         (i) => (
           i,
           filtered[i],
-          [for (final e in extractors) e.$1(filtered[i]) as Object?],
+          [for (final e in extractors) sortKey(e.$1(filtered[i]) as Object?)],
         ),
       );
       indexed.sort((a, b) {
@@ -251,23 +280,37 @@ class FilterItemsUseCase {
 
   static DateTime _dayOf(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  List<dynamic Function(T)> _searchExtractors<T>(
+  /// A formatter that throws (e.g. a cast in user code) never breaks the
+  /// search: the displayed text is simply not matched.
+  static String? _safeFormat(DisplayFormatter formatter, Object? value) {
+    if (value == null) return null;
+    try {
+      return formatter(value);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<(dynamic Function(T), DisplayFormatter?)> _searchExtractors<T>(
     List<ColumnDefinition> columns,
     Map<String, dynamic Function(T)>? valueProviders,
     Set<String> hiddenColumnIds,
+    Map<String, DisplayFormatter>? displayFormatters,
   ) {
     if (valueProviders == null) return const [];
     final byId = {for (final c in columns) c.id: c};
-    final result = <dynamic Function(T)>[];
+    final result = <(dynamic Function(T), DisplayFormatter?)>[];
     valueProviders.forEach((id, extractor) {
       final col = byId[id];
       // Providers without a matching column act as extra "search-only" keys.
       if (col == null) {
-        result.add(extractor);
+        result.add((extractor, null));
         return;
       }
       final visible = col.isVisible && !hiddenColumnIds.contains(id);
-      if (visible && col.isSearchable) result.add(extractor);
+      if (visible && col.isSearchable) {
+        result.add((extractor, displayFormatters?[id]));
+      }
     });
     return result;
   }
@@ -275,15 +318,22 @@ class FilterItemsUseCase {
   bool _matchesQuery<T>(
     T item,
     String query,
-    List<dynamic Function(T)> extractors,
+    List<(dynamic Function(T), DisplayFormatter?)> extractors,
     Map<String, dynamic Function(T)>? valueProviders,
   ) {
     bool matches(Object? value) =>
-        value != null && _searchableText(value).contains(query);
+        value != null && textNormalizer(_searchableText(value)).contains(query);
 
     if (valueProviders != null) {
-      for (final extractor in extractors) {
-        if (matches(extractor(item))) return true;
+      for (final (extractor, formatter) in extractors) {
+        final value = extractor(item) as Object?;
+        if (matches(value)) return true;
+        if (formatter != null) {
+          final shown = _safeFormat(formatter, value);
+          if (shown != null && textNormalizer(shown).contains(query)) {
+            return true;
+          }
+        }
       }
       return false;
     }
@@ -295,8 +345,8 @@ class FilterItemsUseCase {
     if (value is DateTime) {
       final m = value.month.toString().padLeft(2, '0');
       final d = value.day.toString().padLeft(2, '0');
-      return '${value.year}-$m-$d ${value.toIso8601String()}'.toLowerCase();
+      return '${value.year}-$m-$d ${value.toIso8601String()}';
     }
-    return value.toString().toLowerCase();
+    return value.toString();
   }
 }

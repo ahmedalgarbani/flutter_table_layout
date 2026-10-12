@@ -100,6 +100,12 @@ class _TableFilterBarState<T> extends State<TableFilterBar<T>> {
   Widget build(BuildContext context) {
     if (!_hasContent) return const SizedBox.shrink();
     final theme = widget.theme;
+    final cubit = context.read<TableCubit<T>>();
+    // The bar stays usable while an error is shown (e.g. a server error
+    // caused by the current search): non-loaded states use the cubit's query.
+    bool filtering(TableCubitState<T> s) => s is TableLoaded<T>
+        ? s.tableState.hasActiveFilters
+        : cubit.tableState.hasActiveFilters;
 
     return BlocConsumer<TableCubit<T>, TableCubitState<T>>(
       listenWhen: (prev, next) => next is TableLoaded<T>,
@@ -120,18 +126,10 @@ class _TableFilterBarState<T> extends State<TableFilterBar<T>> {
           });
         }
       },
-      buildWhen: (prev, next) =>
-          prev.runtimeType != next.runtimeType ||
-          (prev is TableLoaded<T> &&
-              next is TableLoaded<T> &&
-              prev.tableState.hasActiveFilters !=
-                  next.tableState.hasActiveFilters),
+      buildWhen: (prev, next) => filtering(prev) != filtering(next),
       builder: (context, state) {
-        if (state is! TableLoaded<T>) return const SizedBox.shrink();
         final hasActiveFilters =
-            state.tableState.hasActiveFilters ||
-            _startDate != null ||
-            _endDate != null;
+            filtering(state) || _startDate != null || _endDate != null;
 
         return Container(
           decoration: BoxDecoration(
