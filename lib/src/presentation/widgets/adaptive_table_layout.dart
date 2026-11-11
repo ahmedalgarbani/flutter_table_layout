@@ -239,6 +239,11 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Lets users reorder columns by long-pressing and dragging a header.
   final bool allowColumnReorder;
 
+  /// Gives each column header a menu (right-click, or the ⋮ button shown on
+  /// hover): sort ascending / descending, clear the sort, freeze, group by,
+  /// auto-fit the width and hide the column (desktop grid).
+  final bool showColumnMenu;
+
   /// Arrow keys, Enter / F2 (edit), Space (select), Tab, Home / End,
   /// Page Up / Down, Ctrl + A (select all), Ctrl + C (copy), Escape
   /// (desktop grid).
@@ -397,6 +402,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.showColumnFilters = false,
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
+    this.showColumnMenu = true,
     this.enableKeyboardNavigation = true,
     this.groupByColumnId,
     this.groupHeaderBuilder,
@@ -470,6 +476,11 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       if (c.valueFormatter != null) c.id: c.valueFormatter!,
   };
 
+  Map<String, Comparator<Object?>> get _comparators => {
+    for (final c in widget.columns)
+      if (c.comparator != null) c.id: c.comparator!,
+  };
+
   Map<String, TableAggregator<T>> _buildAggregators() {
     final result = <String, TableAggregator<T>>{};
     for (final c in widget.columns) {
@@ -522,6 +533,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       rowKey: widget.rowKey,
       displayFormatters: _displayFormatters,
       aggregators: _aggregators,
+      comparators: _comparators,
       initialSnapshot: _initialSnapshot,
       paginated: widget.showPagination,
     );
@@ -555,6 +567,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       clearDataSource: widget.dataSource == null,
       displayFormatters: _displayFormatters,
       aggregators: _aggregators,
+      comparators: _comparators,
       rowKey: widget.rowKey,
       clearRowKey: widget.rowKey == null,
       paginated: widget.showPagination,
@@ -689,6 +702,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       showColumnFilters: widget.showColumnFilters,
       allowColumnResize: widget.allowColumnResize,
       allowColumnReorder: widget.allowColumnReorder,
+      showColumnMenu: widget.showColumnMenu,
       enableKeyboardNavigation: widget.enableKeyboardNavigation,
       tristateSort: widget.tristateSort,
       showCardSortBar: widget.showCardSortBar,

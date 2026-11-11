@@ -49,6 +49,13 @@ class AdaptiveTableColumn<T> {
   /// [TableAggregate.count].
   final CellValueFormatter? aggregateFormatter;
 
+  /// Custom sort order of this column's (non-null) values, e.g.
+  /// `FilterItemsUseCase.naturalCompare` so `INV-9` comes before `INV-10`,
+  /// or your own ranking (`low < medium < high`). `null` values always sort
+  /// last. Pass a top-level or static function (not a new closure on every
+  /// build), otherwise sorted tables re-sort on each rebuild.
+  final int Function(dynamic a, dynamic b)? comparator;
+
   AdaptiveTableColumn({
     required String id,
     required String title,
@@ -75,6 +82,7 @@ class AdaptiveTableColumn<T> {
     this.aggregate,
     this.aggregator,
     this.aggregateFormatter,
+    this.comparator,
   }) : definition = ColumnDefinition(
          id: id,
          title: title,

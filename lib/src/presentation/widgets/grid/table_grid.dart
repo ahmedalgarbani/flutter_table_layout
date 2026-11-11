@@ -41,6 +41,7 @@ class TableGrid<T> extends StatefulWidget {
   final bool showColumnFilters;
   final bool allowColumnResize;
   final bool allowColumnReorder;
+  final bool showColumnMenu;
   final bool enableKeyboardNavigation;
   final bool tristateSort;
   final CellEditCallback<T>? onCellEdited;
@@ -65,6 +66,7 @@ class TableGrid<T> extends StatefulWidget {
     this.showColumnFilters = false,
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
+    this.showColumnMenu = true,
     this.enableKeyboardNavigation = true,
     this.tristateSort = false,
     this.onCellEdited,
@@ -459,36 +461,40 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     }
 
     Widget content = _HoverRegion(
-      builder: (context, hovered) => Padding(
-        padding: theme.headerPadding,
-        child: Row(
-          mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
-          children: [
-            Flexible(child: label),
-            if (canSort) ...[
-              const SizedBox(width: 4),
-              // Only the sorted columns show their arrow; the others reveal
-              // it on hover, which keeps the header calm.
-              AnimatedOpacity(
-                duration: const Duration(milliseconds: 150),
-                opacity: isSorted ? 1.0 : (hovered ? 0.45 : 0.0),
-                child: AnimatedRotation(
-                  duration: const Duration(milliseconds: 200),
-                  turns: isSorted && !isAscending ? 0.5 : 0,
-                  child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
-                ),
-              ),
-              if (isSorted && sorts.length > 1)
-                Text(
-                  '${sortIndex + 1}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: iconColor,
+      builder: (context, hovered) => _withMenuButton(
+        col,
+        hovered: hovered,
+        child: Padding(
+          padding: theme.headerPadding,
+          child: Row(
+            mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
+            children: [
+              Flexible(child: label),
+              if (canSort) ...[
+                const SizedBox(width: 4),
+                // Only the sorted columns show their arrow; the others reveal
+                // it on hover, which keeps the header calm.
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: isSorted ? 1.0 : (hovered ? 0.45 : 0.0),
+                  child: AnimatedRotation(
+                    duration: const Duration(milliseconds: 200),
+                    turns: isSorted && !isAscending ? 0.5 : 0,
+                    child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
                   ),
                 ),
+                if (isSorted && sorts.length > 1)
+                  Text(
+                    '${sortIndex + 1}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: iconColor,
+                    ),
+                  ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -504,6 +510,14 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           ),
           child: content,
         ),
+      );
+    }
+
+    if (widget.showColumnMenu) {
+      content = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapUp: (d) => _openColumnMenu(col, d.globalPosition),
+        child: content,
       );
     }
 
@@ -544,6 +558,212 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         ),
       ],
     );
+  }
+
+  /// Shows the ⋮ button of the column menu over the header's end while the
+  /// header is hovered.
+  Widget _withMenuButton(
+    AdaptiveTableColumn<T> col, {
+    required bool hovered,
+    required Widget child,
+  }) {
+    if (!widget.showColumnMenu || !hovered) return child;
+    final color = theme.headerTextStyle.color ?? theme.actionIconColor;
+    return Stack(
+      children: [
+        child,
+        PositionedDirectional(
+          end: 10,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: Builder(
+              builder: (buttonContext) => Tooltip(
+                message: labels.columnMenu,
+                child: Material(
+                  color: _headerSolid,
+                  shape: const CircleBorder(),
+                  child: InkResponse(
+                    radius: 14,
+                    onTap: () {
+                      final box =
+                          buttonContext.findRenderObject()! as RenderBox;
+                      _openColumnMenu(
+                        col,
+                        box.localToGlobal(box.size.bottomLeft(Offset.zero)),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Icon(Icons.more_vert, size: 16, color: color),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The column menu: sort, freeze, group, auto-fit, hide.
+  Future<void> _openColumnMenu(
+    AdaptiveTableColumn<T> col,
+    Offset position,
+  ) async {
+    final state = widget.state;
+    final cubit = _cubit;
+    final hasValues = widget.renderer.valueProviders.containsKey(col.id);
+    final canSort = col.isSortable && hasValues;
+    final sorts = state.tableState.sorts;
+    final sort = sorts.where((s) => s.columnId == col.id).firstOrNull;
+    final pin = state.pinOf(col.definition);
+    final grouped = state.tableState.groupByColumnId == col.id;
+    final visibleCount = widget.columns.length - state.hiddenColumnIds.length;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+
+    PopupMenuItem<String> item(
+      String value,
+      IconData icon,
+      String text, {
+      bool active = false,
+    }) => PopupMenuItem<String>(
+      value: value,
+      height: 40,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: active ? theme.accentColor : theme.actionIconColor,
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: theme.rowTextStyle.copyWith(
+                fontSize: 13,
+                color: active ? theme.accentColor : null,
+                fontWeight: active ? FontWeight.w600 : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & Size.zero,
+        Offset.zero & overlay.size,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      color: theme.cardBackgroundColor.withValues(alpha: 1),
+      items: [
+        if (canSort) ...[
+          item(
+            'asc',
+            Icons.arrow_upward,
+            labels.sortAscending,
+            active: sort?.ascending == true,
+          ),
+          item(
+            'desc',
+            Icons.arrow_downward,
+            labels.sortDescending,
+            active: sort?.ascending == false,
+          ),
+          if (sort != null) item('unsort', Icons.close, labels.clearSort),
+          const PopupMenuDivider(),
+        ],
+        if (pin != ColumnPin.start)
+          item('pinStart', Icons.push_pin_outlined, labels.freezeStart),
+        if (pin != ColumnPin.end)
+          item('pinEnd', Icons.push_pin_outlined, labels.freezeEnd),
+        if (pin != ColumnPin.none)
+          item('unpin', Icons.push_pin, labels.unfreeze, active: true),
+        if (col.isGroupable && hasValues)
+          grouped
+              ? item(
+                  'ungroup',
+                  Icons.account_tree_outlined,
+                  labels.noGrouping,
+                  active: true,
+                )
+              : item(
+                  'group',
+                  Icons.account_tree_outlined,
+                  labels.groupByColumn(col.title),
+                ),
+        if (col.isResizable && widget.allowColumnResize)
+          item('fit', Icons.fit_screen_outlined, labels.autoFitColumn),
+        if (col.isHideable && visibleCount > 1) ...[
+          const PopupMenuDivider(),
+          item('hide', Icons.visibility_off_outlined, labels.hideColumn),
+        ],
+      ],
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case 'asc':
+        cubit.sortBy(col.id);
+      case 'desc':
+        cubit.sortBy(col.id, ascending: false);
+      case 'unsort':
+        cubit.setSorts(sorts.where((s) => s.columnId != col.id).toList());
+      case 'pinStart':
+        cubit.setColumnPin(col.id, ColumnPin.start);
+      case 'pinEnd':
+        cubit.setColumnPin(col.id, ColumnPin.end);
+      case 'unpin':
+        cubit.setColumnPin(col.id, ColumnPin.none);
+      case 'group':
+        cubit.groupBy(col.id);
+      case 'ungroup':
+        cubit.groupBy(null);
+      case 'fit':
+        cubit.setColumnWidth(col.id, _fitWidth(col));
+      case 'hide':
+        cubit.setColumnVisibility(col.id, false);
+    }
+  }
+
+  /// The width that shows [col]'s title and the text of its displayed rows
+  /// (the first 500) without truncation.
+  double _fitWidth(AdaptiveTableColumn<T> col) {
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    // Title + sort arrow and menu button.
+    var content = measure(col.title, theme.headerTextStyle) + 44;
+    final measurable =
+        col.cellBuilder == null &&
+        widget.renderer.valueProviders.containsKey(col.id);
+    if (measurable) {
+      for (final row in _rows.take(500)) {
+        content = math.max(
+          content,
+          measure(widget.renderer.textFor(col, row.item), theme.rowTextStyle),
+        );
+      }
+    }
+    final padding = theme.rowPadding.resolve(direction).horizontal;
+    return (content + padding + 6).clamp(col.minWidth, 640).ceilToDouble();
   }
 
   /// Keeps the columns before [col] at their current width while it is

@@ -27,6 +27,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   bool Function(T, Map<String, dynamic>)? _customFilterMatcher;
   Map<String, DisplayFormatter> _displayFormatters;
   Map<String, TableAggregator<T>> _aggregators;
+  Map<String, Comparator<Object?>> _comparators;
   RowKeyBuilder<T>? _rowKey;
   bool _paginated;
   final FilterItemsUseCase _filterUseCase;
@@ -61,6 +62,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     RowKeyBuilder<T>? rowKey,
     Map<String, DisplayFormatter> displayFormatters = const {},
     Map<String, TableAggregator<T>> aggregators = const {},
+    Map<String, Comparator<Object?>> comparators = const {},
     TableSnapshot? initialSnapshot,
     bool paginated = true,
   }) : _dataSource = dataSource,
@@ -71,6 +73,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
        _customFilterMatcher = customFilterMatcher,
        _displayFormatters = Map.unmodifiable(displayFormatters),
        _aggregators = Map.unmodifiable(aggregators),
+       _comparators = Map.unmodifiable(comparators),
        _rowKey = rowKey,
        _filterUseCase = filterUseCase,
        _initialTableState = initialTableState,
@@ -166,6 +169,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     bool clearDataSource = false,
     Map<String, DisplayFormatter>? displayFormatters,
     Map<String, TableAggregator<T>>? aggregators,
+    Map<String, Comparator<Object?>>? comparators,
     RowKeyBuilder<T>? rowKey,
     bool clearRowKey = false,
     bool? paginated,
@@ -220,6 +224,10 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
           requery ||
           _tableState.searchQuery.trim().isNotEmpty ||
           _tableState.columnFilters.isNotEmpty;
+    }
+    if (comparators != null && !_sameFunctions(comparators, _comparators)) {
+      _comparators = Map.unmodifiable(comparators);
+      requery = requery || _tableState.sorts.isNotEmpty;
     }
     if (aggregators != null && !_sameFunctions(aggregators, _aggregators)) {
       _aggregators = Map.unmodifiable(aggregators);
@@ -825,6 +833,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
         customFilterMatcher: _customFilterMatcher,
         hiddenColumnIds: _hidden.toSet(),
         displayFormatters: _displayFormatters,
+        comparators: _comparators,
       );
       if (result.effectivePage != _tableState.currentPage) {
         _tableState = _tableState.copyWith(currentPage: result.effectivePage);

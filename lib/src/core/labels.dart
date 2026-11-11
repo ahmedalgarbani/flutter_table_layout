@@ -76,6 +76,15 @@ class AdaptiveTableLabels {
   final String allRows;
   final String save;
   final String noMatches;
+  final String sortAscending;
+  final String sortDescending;
+  final String clearSort;
+  final String hideColumn;
+  final String autoFitColumn;
+  final String columnMenu;
+
+  /// `"Group by Department"`.
+  final String Function(String column) groupByColumn;
 
   /// Placeholder of an empty selector: `"Select Currency…"`.
   final String Function(String field) selectPlaceholder;
@@ -169,6 +178,13 @@ class AdaptiveTableLabels {
     this.allRows = 'All',
     this.save = 'Save',
     this.noMatches = 'No items found',
+    this.sortAscending = 'Sort ascending',
+    this.sortDescending = 'Sort descending',
+    this.clearSort = 'Clear sort',
+    this.hideColumn = 'Hide column',
+    this.autoFitColumn = 'Auto-fit width',
+    this.columnMenu = 'Column options',
+    this.groupByColumn = _enGroupByColumn,
     this.selectPlaceholder = _enSelectPlaceholder,
     this.copied = _enCopied,
     required this.pageStatus,
@@ -330,6 +346,13 @@ class AdaptiveTableLabels {
     allRows: 'الكل',
     save: 'حفظ',
     noMatches: 'لا توجد عناصر',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    clearSort: 'إلغاء الترتيب',
+    hideColumn: 'إخفاء العمود',
+    autoFitColumn: 'ملاءمة العرض تلقائياً',
+    columnMenu: 'خيارات العمود',
+    groupByColumn: _arGroupByColumn,
     selectPlaceholder: _arSelectPlaceholder,
     copied: _arCopied,
     pageStatus: _arPageStatus,
@@ -421,6 +444,13 @@ class AdaptiveTableLabels {
     String? allRows,
     String? save,
     String? noMatches,
+    String? sortAscending,
+    String? sortDescending,
+    String? clearSort,
+    String? hideColumn,
+    String? autoFitColumn,
+    String? columnMenu,
+    String Function(String column)? groupByColumn,
     String Function(String field)? selectPlaceholder,
     String Function(int rows)? copied,
     String Function(int page, int totalPages, int totalItems)? pageStatus,
@@ -499,6 +529,13 @@ class AdaptiveTableLabels {
       allRows: allRows ?? this.allRows,
       save: save ?? this.save,
       noMatches: noMatches ?? this.noMatches,
+      sortAscending: sortAscending ?? this.sortAscending,
+      sortDescending: sortDescending ?? this.sortDescending,
+      clearSort: clearSort ?? this.clearSort,
+      hideColumn: hideColumn ?? this.hideColumn,
+      autoFitColumn: autoFitColumn ?? this.autoFitColumn,
+      columnMenu: columnMenu ?? this.columnMenu,
+      groupByColumn: groupByColumn ?? this.groupByColumn,
       selectPlaceholder: selectPlaceholder ?? this.selectPlaceholder,
       copied: copied ?? this.copied,
       pageStatus: pageStatus ?? this.pageStatus,
@@ -518,6 +555,8 @@ String _enSelectedCount(int count) => '$count selected';
 String _enExportFailed(String format, Object error) =>
     '$format export failed: $error';
 String _enSavedTo(String path) => 'Saved to $path';
+String _enGroupByColumn(String column) => 'Group by $column';
+String _arGroupByColumn(String column) => 'تجميع حسب $column';
 String _enSelectPlaceholder(String field) => 'Select $field…';
 String _enCopied(int rows) =>
     rows <= 1 ? 'Copied to clipboard' : '$rows rows copied';
