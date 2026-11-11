@@ -50,6 +50,52 @@ abstract final class TableTextNormalizer {
     return buffer.toString();
   }
 
+  /// Where [query] occurs in [text] once both went through [normalize], as
+  /// `(start, end)` offsets into the **original** [text] — e.g. to highlight
+  /// `احمد` inside `أَحْمَد`. Diacritics following a match are included.
+  ///
+  /// Returns an empty list when nothing matches, or when [normalize] does
+  /// not work character by character (the positions can't be mapped back).
+  static List<({int start, int end})> matchRanges(
+    String text,
+    String query, {
+    TextNormalizer normalize = TableTextNormalizer.normalize,
+  }) {
+    final needle = normalize(query.trim());
+    if (needle.isEmpty || text.isEmpty) return const [];
+    final folded = StringBuffer();
+    // origin[i] = index in [text] of the character behind folded[i].
+    final origin = <int>[];
+    for (var i = 0; i < text.length; i++) {
+      final piece = normalize(text[i]);
+      folded.write(piece);
+      for (var k = 0; k < piece.length; k++) {
+        origin.add(i);
+      }
+    }
+    final haystack = folded.toString();
+    if (haystack != normalize(text)) return const [];
+    final ranges = <({int start, int end})>[];
+    var from = 0;
+    while (true) {
+      final at = haystack.indexOf(needle, from);
+      if (at == -1) break;
+      final start = origin[at];
+      var end = origin[at + needle.length - 1] + 1;
+      // Marks dropped by the normalizer belong to the letter before them.
+      while (end < text.length && normalize(text[end]).isEmpty) {
+        end++;
+      }
+      if (ranges.isNotEmpty && start <= ranges.last.end) {
+        ranges[ranges.length - 1] = (start: ranges.last.start, end: end);
+      } else {
+        ranges.add((start: start, end: end));
+      }
+      from = at + needle.length;
+    }
+    return ranges;
+  }
+
   static final _dayPattern = RegExp(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$');
 
   /// Parses a calendar day typed by a user: `2026-01-05`, `2026/1/5`,

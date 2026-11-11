@@ -5,6 +5,7 @@ import '../../core/labels.dart';
 import '../../core/theme.dart';
 import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_state_model.dart';
+import '../../domain/utils/table_text_normalizer.dart';
 import '../cubit/table_cubit.dart';
 import '../cubit/table_cubit_state.dart';
 import '../export/table_export_runner.dart';
@@ -44,6 +45,8 @@ class TableContent<T> extends StatelessWidget {
   final GroupHeaderBuilder<T>? groupHeaderBuilder;
   final double minRowHeight;
   final TableExportRunner<T>? exportRunner;
+  final bool highlightSearchMatches;
+  final TextNormalizer textNormalizer;
   final AdaptiveTableTheme theme;
   final AdaptiveTableLabels labels;
 
@@ -76,14 +79,18 @@ class TableContent<T> extends StatelessWidget {
     this.groupHeaderBuilder,
     this.minRowHeight = 0,
     this.exportRunner,
+    this.highlightSearchMatches = true,
+    this.textNormalizer = TableTextNormalizer.normalize,
     required this.theme,
     this.labels = AdaptiveTableLabels.en,
   });
 
-  CellRenderer<T> get _renderer => CellRenderer<T>(
+  CellRenderer<T> _rendererFor(TableLoaded<T> state) => CellRenderer<T>(
     valueProviders: valueProviders,
     theme: theme,
     rowColorBuilder: rowColorBuilder,
+    highlightQuery: highlightSearchMatches ? state.tableState.searchQuery : '',
+    textNormalizer: textNormalizer,
   );
 
   @override
@@ -123,7 +130,7 @@ class TableContent<T> extends StatelessWidget {
             return TableGrid<T>(
               state: state,
               columns: columns,
-              renderer: _renderer,
+              renderer: _rendererFor(state),
               showSelection: showSelection,
               minDesktopWidth: minDesktopWidth,
               onRowTap: onRowTap,
@@ -321,7 +328,7 @@ class TableContent<T> extends StatelessWidget {
   }) {
     final visibleCols = state.arrange(columns, (c) => c.definition);
     if (visibleCols.isEmpty) return const SizedBox.shrink();
-    final renderer = _renderer;
+    final renderer = _rendererFor(state);
     final selected = state.selectedKeys;
     final expanded = state.expandedKeys;
     final groupId = state.tableState.groupByColumnId;
@@ -370,10 +377,10 @@ class TableContent<T> extends StatelessWidget {
           selected: isSelected,
           alternate: false,
         ),
-        title: _mobileText(context, titleCol, item, isTitle: true),
+        title: _mobileText(context, renderer, titleCol, item, isTitle: true),
         subtitle: subtitleCol == null
             ? null
-            : _mobileText(context, subtitleCol, item),
+            : _mobileText(context, renderer, subtitleCol, item),
         details: [
           for (final col in detailCols)
             _MobileDetail(
@@ -539,6 +546,7 @@ class TableContent<T> extends StatelessWidget {
 
   Widget _mobileText(
     BuildContext context,
+    CellRenderer<T> renderer,
     AdaptiveTableColumn<T> col,
     T item, {
     bool isTitle = false,
@@ -548,10 +556,10 @@ class TableContent<T> extends StatelessWidget {
     if (!valueProviders.containsKey(col.id) && col.cellBuilder != null) {
       return col.cellBuilder!(context, item);
     }
-    return Text(
-      _renderer.textFor(col, item),
+    return renderer.textWidget(
+      renderer.textFor(col, item),
       maxLines: isTitle ? 2 : 1,
-      overflow: TextOverflow.ellipsis,
+      highlight: col.isSearchable,
       style: isTitle
           ? theme.headerTextStyle.copyWith(
               fontSize: 14,

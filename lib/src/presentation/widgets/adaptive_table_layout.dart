@@ -304,6 +304,12 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// [TableTextNormalizer.caseInsensitive] for plain matching. Read once.
   final TextNormalizer textNormalizer;
 
+  /// Highlights the search text inside the cells (and card texts) of
+  /// searchable columns without a `cellBuilder`. The match follows
+  /// [textNormalizer], so `احمد` is highlighted inside `أحمد`. The color is
+  /// [AdaptiveTableTheme.searchHighlightColor].
+  final bool highlightSearchMatches;
+
   /// Date filter look: one "Period" button with presets and a range calendar
   /// (default) or the legacy separate From / To buttons.
   final DateFilterStyle dateFilterStyle;
@@ -410,6 +416,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.queryButtonLabel,
     this.searchDebounce = const Duration(milliseconds: 250),
     this.textNormalizer = TableTextNormalizer.normalize,
+    this.highlightSearchMatches = true,
     this.firstDate,
     this.lastDate,
     this.dateFilterStyle = DateFilterStyle.rangePicker,
@@ -690,6 +697,8 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       groupHeaderBuilder: widget.groupHeaderBuilder,
       minRowHeight: widget.minRowHeight,
       exportRunner: runner,
+      highlightSearchMatches: widget.highlightSearchMatches,
+      textNormalizer: widget.textNormalizer,
       theme: theme,
       labels: labels,
     );

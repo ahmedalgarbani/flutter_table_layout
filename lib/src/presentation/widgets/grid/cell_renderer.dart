@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
 import '../../../domain/models/column_definition.dart';
+import '../../../domain/utils/table_text_normalizer.dart';
 import '../adaptive_table_layout.dart';
 
 /// Shared cell helpers of the desktop grid and the mobile cards.
@@ -11,11 +12,72 @@ class CellRenderer<T> {
   final AdaptiveTableTheme theme;
   final Color? Function(T item)? rowColorBuilder;
 
+  /// Search text whose matches are highlighted in text cells (empty = none).
+  final String highlightQuery;
+
+  /// How [highlightQuery] is matched (the table's `textNormalizer`).
+  final TextNormalizer textNormalizer;
+
   const CellRenderer({
     required this.valueProviders,
     required this.theme,
     this.rowColorBuilder,
+    this.highlightQuery = '',
+    this.textNormalizer = TableTextNormalizer.normalize,
   });
+
+  /// [text] with the matches of [highlightQuery] marked, or `null` when
+  /// there is nothing to highlight.
+  TextSpan? highlighted(String text) {
+    if (highlightQuery.trim().isEmpty) return null;
+    final ranges = TableTextNormalizer.matchRanges(
+      text,
+      highlightQuery,
+      normalize: textNormalizer,
+    );
+    if (ranges.isEmpty) return null;
+    final mark = TextStyle(
+      backgroundColor: theme.effectiveSearchHighlightColor,
+      fontWeight: FontWeight.w600,
+    );
+    final spans = <TextSpan>[];
+    var at = 0;
+    for (final r in ranges) {
+      if (r.start > at) spans.add(TextSpan(text: text.substring(at, r.start)));
+      spans.add(TextSpan(text: text.substring(r.start, r.end), style: mark));
+      at = r.end;
+    }
+    if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
+    return TextSpan(children: spans);
+  }
+
+  /// A text widget for [text], with the search matches highlighted when the
+  /// column is searchable.
+  Widget textWidget(
+    String text, {
+    required TextStyle style,
+    required int maxLines,
+    TextAlign? textAlign,
+    bool highlight = true,
+  }) {
+    final span = highlight ? highlighted(text) : null;
+    if (span == null) {
+      return Text(
+        text,
+        style: style,
+        overflow: TextOverflow.ellipsis,
+        maxLines: maxLines,
+        textAlign: textAlign,
+      );
+    }
+    return Text.rich(
+      span,
+      style: style,
+      overflow: TextOverflow.ellipsis,
+      maxLines: maxLines,
+      textAlign: textAlign,
+    );
+  }
 
   Object? rawValue(AdaptiveTableColumn<T> col, T item) =>
       valueProviders[col.id]?.call(item) as Object?;
@@ -25,12 +87,12 @@ class CellRenderer<T> {
 
   Widget cellFor(BuildContext context, AdaptiveTableColumn<T> col, T item) {
     if (col.cellBuilder != null) return col.cellBuilder!(context, item);
-    return Text(
+    return textWidget(
       textFor(col, item),
       style: theme.rowTextStyle,
-      overflow: TextOverflow.ellipsis,
       maxLines: 2,
       textAlign: textAlign(col.alignment),
+      highlight: col.isSearchable,
     );
   }
 
