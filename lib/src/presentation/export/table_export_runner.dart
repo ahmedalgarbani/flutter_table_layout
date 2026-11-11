@@ -88,7 +88,11 @@ class TableExportRunner<T> {
   List<ColumnDefinition> orderedDefinitions(TableLoaded<T> state) {
     final visible = state.arrange(columns, (c) => c.definition);
     return [
-      ...visible.map((c) => c.definition),
+      // Shown by the user even when declared `isVisible: false`.
+      ...visible.map(
+        (c) =>
+            c.isVisible ? c.definition : c.definition.copyWith(isVisible: true),
+      ),
       // Hidden columns are skipped by the exporters anyway.
       ...columns.where((c) => !visible.contains(c)).map((c) => c.definition),
     ];

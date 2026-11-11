@@ -1,9 +1,12 @@
 import 'dart:convert';
 
-import 'package:excel/excel.dart';
 import 'package:flutter_table_layout/flutter_table_layout.dart';
+import 'package:flutter_table_layout/src/data/exporters/xlsx/xlsx_writer.dart';
+import 'package:flutter_table_layout/src/data/exporters/xlsx/zip_writer.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
+
+import 'support/xlsx_reader.dart';
 
 class Item {
   final int id;
@@ -115,14 +118,65 @@ void main() {
         valueProviders: _providers,
         hiddenColumnIds: ['date'],
       );
-      final excel = Excel.decodeBytes(bytes);
-      expect(excel.tables.keys, ['Report  2026 04  final']);
-      final sheet = excel.tables.values.first;
-      expect(sheet.maxRows, 3);
-      final header = sheet.row(0).map((c) => c?.value.toString()).toList();
-      expect(header, ['ID', 'Name', 'Price']);
-      expect(sheet.row(1)[0]?.value, isA<IntCellValue>());
-      expect(sheet.row(1)[2]?.value, isA<DoubleCellValue>());
+      final xlsx = XlsxFile.decode(bytes);
+      expect(xlsx.sheetName, 'Report  2026 04  final');
+      final rows = xlsx.rows;
+      expect(rows, hasLength(3));
+      expect(rows[0].values, ['ID', 'Name', 'Price']);
+      expect(rows[1], {'A': 1, 'B': 'Tom & <Jerry>', 'C': 9.5});
+      expect(rows[2], {'A': 2, 'B': 'قهوة "عربية"', 'C': 12.0});
+      // Header: styled, frozen, with filter buttons.
+      expect(xlsx.styleOf('A1'), 1);
+      expect(xlsx.sheetXml, contains('state="frozen"'));
+      expect(xlsx.sheetXml, contains('<autoFilter ref="A1:C3"/>'));
+    });
+
+    test('dates are date cells, RTL sheets, booleans and odd values', () async {
+      final bytes = await const ExcelExporter().generateExcel<Item>(
+        sheetName: 'S',
+        columns: const [
+          ColumnDefinition(id: 'date', title: 'Date'),
+          ColumnDefinition(id: 'flag', title: 'Flag'),
+          ColumnDefinition(id: 'odd', title: 'Odd'),
+        ],
+        items: _items,
+        valueProviders: {
+          'date': (i) => i.date,
+          'flag': (i) => i.id.isEven,
+          'odd': (i) => i.id.isEven ? double.nan : 'a\u0001b\nc',
+        },
+        isRtl: true,
+        freezeHeader: false,
+        autoFilter: false,
+      );
+      final xlsx = XlsxFile.decode(bytes);
+      expect(xlsx.sheetXml, contains('rightToLeft="1"'));
+      expect(xlsx.sheetXml, isNot(contains('frozen')));
+      expect(xlsx.sheetXml, isNot(contains('autoFilter')));
+      final rows = xlsx.rows;
+      // 2026-04-22 is serial 46134; 14:30 is .604166…
+      expect(rows[1]['A'], 46134);
+      expect(xlsx.styleOf('A2'), 2);
+      expect(rows[2]['A'], closeTo(46135.604166, 0.00001));
+      expect(xlsx.styleOf('A3'), 3);
+      expect(rows[1]['B'], false);
+      expect(rows[2]['B'], true);
+      expect(rows[1]['C'], 'ab\nc'); // control character dropped
+      expect(rows[2]['C'], 'NaN');
+    });
+
+    test('ZipWriter: CRC-32 and stored entries', () {
+      expect(ZipWriter.crc32(utf8.encode('123456789')), 0xCBF43926);
+      final zip = ZipWriter()
+        ..addFile('a.txt', utf8.encode('hello'), compress: false)
+        ..addFile('مجلد/b.txt', utf8.encode('x' * 500));
+      final bytes = zip.encode();
+      expect(bytes.sublist(0, 4), [0x50, 0x4B, 0x03, 0x04]);
+      expect(XlsxWriter.columnName(0), 'A');
+      expect(XlsxWriter.columnName(25), 'Z');
+      expect(XlsxWriter.columnName(26), 'AA');
+      expect(XlsxWriter.columnName(701), 'ZZ');
+      expect(XlsxWriter.columnName(702), 'AAA');
     });
 
     test('sanitizeSheetName', () {
@@ -215,10 +269,14 @@ void main() {
         valueProviders: _providers,
         totals: {'price': 21.5},
       );
-      final sheet = Excel.decodeBytes(bytes).tables.values.first;
-      expect(sheet.maxRows, 4);
-      expect(sheet.row(3)[0]?.value.toString(), 'Total');
-      expect(sheet.row(3)[2]?.value, isA<DoubleCellValue>());
+      final xlsx = XlsxFile.decode(bytes);
+      final rows = xlsx.rows;
+      expect(rows, hasLength(4));
+      expect(rows[3]['A'], 'Total');
+      expect(rows[3]['C'], 21.5);
+      expect(xlsx.styleOf('C4'), 4); // bold
+      // The filter range stops before the totals row.
+      expect(xlsx.sheetXml, contains('<autoFilter ref="A1:D3"/>'));
     });
 
     test('PDF: generates with a totals row', () async {

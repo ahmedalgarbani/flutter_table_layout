@@ -242,7 +242,7 @@ class TableContent<T> extends StatelessWidget {
               in state == null
                   ? columns.where((c) => c.definition.isVisible)
                   : state.arrange(columns, (c) => c.definition))
-            c.definition,
+            c.definition.copyWith(isVisible: true),
         ];
     Widget skeleton(bool compact) => TableSkeleton(
       columns: visible,

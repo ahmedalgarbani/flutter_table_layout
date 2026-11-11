@@ -28,6 +28,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   Map<String, DisplayFormatter> _displayFormatters;
   Map<String, TableAggregator<T>> _aggregators;
   RowKeyBuilder<T>? _rowKey;
+  bool _paginated;
   final FilterItemsUseCase _filterUseCase;
   final TableStateModel _initialTableState;
 
@@ -61,7 +62,9 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     Map<String, DisplayFormatter> displayFormatters = const {},
     Map<String, TableAggregator<T>> aggregators = const {},
     TableSnapshot? initialSnapshot,
+    bool paginated = true,
   }) : _dataSource = dataSource,
+       _paginated = paginated,
        _columns = List.unmodifiable(columns),
        _valueProviders = Map.unmodifiable(valueProviders),
        _dateProvider = dateProvider,
@@ -77,6 +80,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
        ),
        super(const TableLoading()) {
     if (initialSnapshot != null) _applySnapshot(initialSnapshot);
+    _tableState = _unpaged(_tableState);
     setItems(items);
   }
 
@@ -137,7 +141,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   /// The current page is clamped to the new page count.
   void setItems(List<T> items, [TableStateModel? stateOverride]) {
     _items = List.unmodifiable(items);
-    if (stateOverride != null) _tableState = stateOverride;
+    if (stateOverride != null) _tableState = _unpaged(stateOverride);
     _selected = _refreshRows(_selected, _items);
     _expanded = _refreshRows(_expanded, _items);
     _recompute();
@@ -164,6 +168,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     Map<String, TableAggregator<T>>? aggregators,
     RowKeyBuilder<T>? rowKey,
     bool clearRowKey = false,
+    bool? paginated,
   }) {
     var requery = false;
     var refetch = false;
@@ -178,6 +183,14 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
       }
     }
     if (rowKey != null || clearRowKey) _rowKey = rowKey;
+    if (paginated != null && paginated != _paginated) {
+      _paginated = paginated;
+      final next = _unpaged(_tableState);
+      if (next != _tableState) {
+        _tableState = next;
+        requery = true;
+      }
+    }
     if (columns != null && !listEquals(columns, _columns)) {
       _applyColumns(columns);
       requery = true;
@@ -575,6 +588,12 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     ];
   }
 
+  List<ColumnDefinition>? _queryColumnsCache;
+
+  List<ColumnDefinition> get _queryColumns => _queryColumnsCache ??= [
+    for (final c in _columns) c.isVisible ? c : c.copyWith(isVisible: true),
+  ];
+
   ColumnDefinition? _column(String id) =>
       _columns.where((c) => c.id == id).firstOrNull;
 
@@ -586,6 +605,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
   void restoreSnapshot(TableSnapshot snapshot) {
     _collapsed = const {};
     _applySnapshot(snapshot);
+    _tableState = _unpaged(_tableState);
     _recompute();
   }
 
@@ -626,6 +646,7 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     final ids = columns.map((c) => c.id).toSet();
     final removed = oldIds.difference(ids);
     _columns = List.unmodifiable(columns);
+    _queryColumnsCache = null;
     _hidden = List.unmodifiable({
       ..._hidden.where(ids.contains),
       // Newly added columns that start hidden.
@@ -761,8 +782,14 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     return true;
   }
 
+  /// Without a pagination footer every row must stay on one page, whatever
+  /// a restored snapshot or `setPageSize` asks for.
+  TableStateModel _unpaged(TableStateModel s) => _paginated || !s.isPaginated
+      ? s
+      : s.copyWith(pageSize: 0, currentPage: 1);
+
   void _update(TableStateModel next) {
-    _tableState = next;
+    _tableState = _unpaged(next);
     _recompute();
   }
 
@@ -789,7 +816,9 @@ class TableCubit<T> extends Cubit<TableCubitState<T>> {
     try {
       final result = _filterUseCase.apply<T>(
         items: _items,
-        columns: _columns,
+        // Visibility is the user's (`_hidden`), not the declared one: a
+        // column hidden by default and shown from the menu is searchable.
+        columns: _queryColumns,
         state: _tableState,
         valueProviders: _valueProviders,
         dateProvider: _dateProvider,

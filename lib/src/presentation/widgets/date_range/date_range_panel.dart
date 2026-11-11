@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../core/labels.dart';
 import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
+import '../../../domain/utils/table_text_normalizer.dart';
 import 'date_range_preset.dart';
 
 /// Opens the date range panel: a popover anchored to [anchor] on wide
@@ -254,7 +255,7 @@ class _DateRangePanelState extends State<DateRangePanel> {
 
   void _typed(String text, {required bool isStart}) {
     final t = text.trim();
-    final parsed = t.isEmpty ? null : DateTime.tryParse(t);
+    final parsed = t.isEmpty ? null : TableTextNormalizer.tryParseDay(t);
     final valid = t.isEmpty || parsed != null;
     setState(() {
       if (isStart) {
@@ -574,7 +575,11 @@ class _DateRangePanelState extends State<DateRangePanel> {
       style: theme.rowTextStyle.copyWith(fontSize: 13),
       cursorColor: theme.accentColor,
       keyboardType: TextInputType.datetime,
-      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9\-]'))],
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(
+          RegExp('[0-9\u0660-\u0669\u06F0-\u06F9/.\\-]'),
+        ),
+      ],
       decoration: InputDecoration(
         isDense: true,
         prefixText: '${isStart ? labels.dateFrom : labels.dateTo}  ',

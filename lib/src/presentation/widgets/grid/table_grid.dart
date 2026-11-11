@@ -10,6 +10,7 @@ import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
 import '../../../domain/models/column_definition.dart';
 import '../../../domain/models/table_aggregate.dart';
+import '../../../domain/utils/table_text_normalizer.dart';
 import '../../cubit/table_cubit.dart';
 import '../../cubit/table_cubit_state.dart';
 import '../../export/table_export_runner.dart';
@@ -1095,7 +1096,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     bool isNumber,
   ) {
     if (!isNumber) return _commit(item, col, text);
-    final trimmed = text.trim();
+    final trimmed = TableTextNormalizer.digitsToAscii(text.trim());
     if (trimmed.isEmpty) return _commit(item, col, null);
     final n =
         num.tryParse(trimmed) ?? num.tryParse(trimmed.replaceAll(',', ''));

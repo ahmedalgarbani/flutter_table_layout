@@ -50,6 +50,21 @@ abstract final class TableTextNormalizer {
     return buffer.toString();
   }
 
+  static final _dayPattern = RegExp(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$');
+
+  /// Parses a calendar day typed by a user: `2026-01-05`, `2026/1/5`,
+  /// `2026.1.5` or the same with Arabic-Indic digits (`٢٠٢٦-٠١-٠٥`).
+  /// Returns `null` for anything else, including impossible dates.
+  static DateTime? tryParseDay(String text) {
+    final m = _dayPattern.firstMatch(digitsToAscii(text.trim()));
+    if (m == null) return null;
+    final y = int.parse(m[1]!);
+    final mo = int.parse(m[2]!);
+    final d = int.parse(m[3]!);
+    final date = DateTime(y, mo, d);
+    return date.year == y && date.month == mo && date.day == d ? date : null;
+  }
+
   static bool _hasArabic(String text) {
     for (var i = 0; i < text.length; i++) {
       final c = text.codeUnitAt(i);

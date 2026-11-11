@@ -126,7 +126,7 @@ class _Operand {
       };
 
   static DateTime? _parseDay(String s) {
-    final d = DateTime.tryParse(s);
+    final d = TableTextNormalizer.tryParseDay(s) ?? DateTime.tryParse(s);
     return d == null ? null : DateTime(d.year, d.month, d.day);
   }
 

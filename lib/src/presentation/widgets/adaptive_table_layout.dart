@@ -516,6 +516,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       displayFormatters: _displayFormatters,
       aggregators: _aggregators,
       initialSnapshot: _initialSnapshot,
+      paginated: widget.showPagination,
     );
     widget.controller?.attach(_cubit);
     _lastSelection = _cubit.selectedItems;
@@ -549,6 +550,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       aggregators: _aggregators,
       rowKey: widget.rowKey,
       clearRowKey: widget.rowKey == null,
+      paginated: widget.showPagination,
     );
 
     if (widget.groupByColumnId != oldWidget.groupByColumnId) {
