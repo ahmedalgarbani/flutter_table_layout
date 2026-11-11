@@ -166,8 +166,8 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
     return AdaptiveTableLayout<Employee>(
       title: _t('الموظفون', 'Employees'),
       subtitle: _t(
-        '2000 صف · أعمدة مثبتة · فلترة لكل عمود · تعديل مباشر · إجماليات',
-        '2,000 rows · frozen columns · column filters · inline editing · totals',
+        '2000 صف · أعمدة مثبتة · فلترة · تعديل مباشر · نسخ ولصق من Excel',
+        '2,000 rows · frozen columns · filters · inline editing · Excel copy / paste',
       ),
       titleIcon: Icon(Icons.badge_outlined, color: theme.accentColor),
       items: _employees,
@@ -177,6 +177,13 @@ class _EmployeesGridTabState extends State<EmployeesGridTab> {
         editable: true,
       ),
       valueProviders: employeeProviders,
+      // Salary and hiring date under one header band.
+      columnGroups: [
+        TableColumnGroup(
+          title: _t('بيانات التوظيف', 'Employment'),
+          columnIds: const ['salary', 'hiredOn'],
+        ),
+      ],
       // Edits replace rows with new instances: the id keeps them selected.
       rowKey: (e) => e.id,
       fillHeight: true,

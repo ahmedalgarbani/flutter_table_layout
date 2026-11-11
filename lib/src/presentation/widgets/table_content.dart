@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/labels.dart';
 import '../../core/theme.dart';
 import '../../domain/models/column_definition.dart';
+import '../../domain/models/table_column_group.dart';
 import '../../domain/models/table_state_model.dart';
 import '../../domain/utils/table_text_normalizer.dart';
 import '../cubit/table_cubit.dart';
@@ -39,6 +40,8 @@ class TableContent<T> extends StatelessWidget {
   final bool allowColumnReorder;
   final bool showColumnMenu;
   final bool enableRangeSelection;
+  final List<TableColumnGroup> columnGroups;
+  final RowReorderCallback<T>? onRowReorder;
   final bool enableKeyboardNavigation;
   final bool tristateSort;
   final bool showCardSortBar;
@@ -75,6 +78,8 @@ class TableContent<T> extends StatelessWidget {
     this.allowColumnReorder = true,
     this.showColumnMenu = true,
     this.enableRangeSelection = true,
+    this.columnGroups = const [],
+    this.onRowReorder,
     this.enableKeyboardNavigation = true,
     this.tristateSort = false,
     this.showCardSortBar = true,
@@ -145,6 +150,8 @@ class TableContent<T> extends StatelessWidget {
               allowColumnReorder: allowColumnReorder,
               showColumnMenu: showColumnMenu,
               enableRangeSelection: enableRangeSelection,
+              columnGroups: columnGroups,
+              onRowReorder: onRowReorder,
               enableKeyboardNavigation: enableKeyboardNavigation,
               tristateSort: tristateSort,
               onCellEdited: onCellEdited,

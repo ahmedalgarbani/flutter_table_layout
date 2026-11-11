@@ -82,6 +82,8 @@ class AdaptiveTableLabels {
   final String hideColumn;
   final String autoFitColumn;
   final String columnMenu;
+  final String reorderRow;
+  final String reorderUnavailable;
 
   /// `"Group by Department"`.
   final String Function(String column) groupByColumn;
@@ -187,6 +189,8 @@ class AdaptiveTableLabels {
     this.hideColumn = 'Hide column',
     this.autoFitColumn = 'Auto-fit width',
     this.columnMenu = 'Column options',
+    this.reorderRow = 'Drag to reorder',
+    this.reorderUnavailable = 'Clear the sort and grouping to reorder rows',
     this.groupByColumn = _enGroupByColumn,
     this.selectPlaceholder = _enSelectPlaceholder,
     this.copied = _enCopied,
@@ -356,6 +360,8 @@ class AdaptiveTableLabels {
     hideColumn: 'إخفاء العمود',
     autoFitColumn: 'ملاءمة العرض تلقائياً',
     columnMenu: 'خيارات العمود',
+    reorderRow: 'اسحب لإعادة الترتيب',
+    reorderUnavailable: 'ألغِ الترتيب والتجميع لإعادة ترتيب الصفوف',
     groupByColumn: _arGroupByColumn,
     selectPlaceholder: _arSelectPlaceholder,
     copied: _arCopied,
@@ -455,6 +461,8 @@ class AdaptiveTableLabels {
     String? hideColumn,
     String? autoFitColumn,
     String? columnMenu,
+    String? reorderRow,
+    String? reorderUnavailable,
     String Function(String column)? groupByColumn,
     String Function(String field)? selectPlaceholder,
     String Function(int rows)? copied,
@@ -541,6 +549,8 @@ class AdaptiveTableLabels {
       hideColumn: hideColumn ?? this.hideColumn,
       autoFitColumn: autoFitColumn ?? this.autoFitColumn,
       columnMenu: columnMenu ?? this.columnMenu,
+      reorderRow: reorderRow ?? this.reorderRow,
+      reorderUnavailable: reorderUnavailable ?? this.reorderUnavailable,
       groupByColumn: groupByColumn ?? this.groupByColumn,
       selectPlaceholder: selectPlaceholder ?? this.selectPlaceholder,
       copied: copied ?? this.copied,

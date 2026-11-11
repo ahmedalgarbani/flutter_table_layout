@@ -11,6 +11,7 @@ import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
 import '../../../domain/models/column_definition.dart';
 import '../../../domain/models/table_aggregate.dart';
+import '../../../domain/models/table_column_group.dart';
 import '../../../domain/utils/table_text_normalizer.dart';
 import '../../cubit/table_cubit.dart';
 import '../../cubit/table_cubit_state.dart';
@@ -46,6 +47,8 @@ class TableGrid<T> extends StatefulWidget {
   final bool enableKeyboardNavigation;
   final bool enableRangeSelection;
   final bool tristateSort;
+  final List<TableColumnGroup> columnGroups;
+  final RowReorderCallback<T>? onRowReorder;
   final CellEditCallback<T>? onCellEdited;
   final CanEditCell<T>? canEditCell;
   final GroupHeaderBuilder<T>? groupHeaderBuilder;
@@ -72,6 +75,8 @@ class TableGrid<T> extends StatefulWidget {
     this.enableKeyboardNavigation = true,
     this.enableRangeSelection = true,
     this.tristateSort = false,
+    this.columnGroups = const [],
+    this.onRowReorder,
     this.onCellEdited,
     this.canEditCell,
     this.groupHeaderBuilder,
@@ -84,6 +89,7 @@ class TableGrid<T> extends StatefulWidget {
 
   static const double selectionColumnWidth = 48;
   static const double expandColumnWidth = 44;
+  static const double reorderColumnWidth = 36;
   static const double minFlexColumnWidth = 80;
 
   /// Splits spreadsheet clipboard text into rows of cells (tab-separated,
@@ -93,6 +99,12 @@ class TableGrid<T> extends StatefulWidget {
 
   @override
   State<TableGrid<T>> createState() => _TableGridState<T>();
+}
+
+/// What a dragged row carries (see `onRowReorder`).
+class RowDragData<T> {
+  final T item;
+  const RowDragData(this.item);
 }
 
 /// The cell being edited: its row key, its row index (fallback when the
@@ -184,6 +196,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     double viewport,
   ) {
     final double system =
+        (widget.onRowReorder != null ? TableGrid.reorderColumnWidth : 0) +
         (widget.expandedRowBuilder != null ? TableGrid.expandColumnWidth : 0) +
         (widget.showSelection ? TableGrid.selectionColumnWidth : 0);
     final widths = List<double?>.filled(cols.length, null);
@@ -282,6 +295,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         final contentWidth = math.max(layout.total, viewport);
 
         final header = _buildHeader(cols, layout.widths, metrics, direction);
+        final groupBand = _buildGroupBand(
+          cols,
+          layout.widths,
+          metrics,
+          direction,
+        );
         final filterRow = widget.showColumnFilters
             ? _buildFilterRow(cols, layout.widths, metrics, direction)
             : null;
@@ -291,7 +310,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
         Widget buildEntry(int index) {
           final entry = entries[index];
-          final child = switch (entry) {
+          Widget child = switch (entry) {
             GroupEntry<T>() => _buildGroupHeader(entry.info, metrics, viewport),
             RowEntry<T>() => _buildRow(
               entry,
@@ -302,6 +321,14 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               viewport,
             ),
           };
+          if (entry is RowEntry<T> && _canReorderRows) {
+            child = _rowDropTarget(
+              before: entry.item,
+              child: child,
+              // The last row also takes drops meant for "after it".
+              last: index == entries.length - 1,
+            );
+          }
           if (index == 0) return child;
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -357,6 +384,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (groupBand != null) ...[
+              groupBand,
+              Divider(height: 1, color: theme.dividerColor),
+            ],
             header,
             Divider(height: 1, thickness: 1, color: theme.dividerColor),
             if (filterRow != null) ...[
@@ -392,6 +423,199 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         }
         return grid;
       },
+    );
+  }
+
+  // ---------------------------------------------------------- row reorder
+
+  /// Rows can only be moved in their own order: not while sorted or grouped.
+  bool get _canReorderRows =>
+      widget.onRowReorder != null &&
+      widget.state.tableState.sorts.isEmpty &&
+      widget.state.tableState.groupByColumnId == null;
+
+  Widget _dragHandle(T item) {
+    final enabled = _canReorderRows;
+    final icon = Icon(
+      Icons.drag_indicator,
+      size: 18,
+      color: theme.actionIconColor.withValues(alpha: enabled ? 0.8 : 0.25),
+    );
+    if (!enabled) {
+      return Tooltip(message: labels.reorderUnavailable, child: icon);
+    }
+    return Draggable<RowDragData<T>>(
+      data: RowDragData<T>(item),
+      axis: Axis.vertical,
+      feedback: Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(6),
+        color: widget.renderer.opaque(theme.rowBackgroundColor),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.drag_indicator, size: 18, color: theme.accentColor),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  _cols.isEmpty
+                      ? ''
+                      : widget.renderer.textFor(_cols.first, item),
+                  style: theme.rowTextStyle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Tooltip(message: labels.reorderRow, child: icon),
+      ),
+    );
+  }
+
+  /// Dropping a dragged row on [child] moves it before [before]; on the
+  /// lower half of the [last] row it moves to the end.
+  Widget _rowDropTarget({
+    required T before,
+    required Widget child,
+    required bool last,
+  }) {
+    final state = widget.state;
+    return Builder(
+      builder: (targetContext) {
+        bool after(DragTargetDetails<RowDragData<T>> d) {
+          if (!last) return false;
+          final box = targetContext.findRenderObject();
+          if (box is! RenderBox || !box.hasSize) return false;
+          return box.globalToLocal(d.offset).dy > box.size.height / 2;
+        }
+
+        return DragTarget<RowDragData<T>>(
+          onWillAcceptWithDetails: (d) =>
+              state.keyOf(d.data.item) != state.keyOf(before) || last,
+          onAcceptWithDetails: (d) {
+            final toEnd = after(d);
+            if (!toEnd && state.keyOf(d.data.item) == state.keyOf(before)) {
+              return;
+            }
+            widget.onRowReorder!(d.data.item, toEnd ? null : before);
+          },
+          builder: (context, candidates, rejected) => DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              border: candidates.isEmpty
+                  ? null
+                  : Border(top: BorderSide(color: theme.accentColor, width: 2)),
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  // --------------------------------------------------------- column groups
+
+  /// The band of [TableColumnGroup] titles above the column headers, or
+  /// `null` when no displayed column belongs to a group.
+  Widget? _buildGroupBand(
+    List<AdaptiveTableColumn<T>> cols,
+    List<double> widths,
+    GridHorizontalMetrics metrics,
+    TextDirection direction,
+  ) {
+    if (widget.columnGroups.isEmpty) return null;
+    final groupOf = <String, TableColumnGroup>{
+      for (final g in widget.columnGroups)
+        for (final id in g.columnIds) id: g,
+    };
+    if (!cols.any((c) => groupOf.containsKey(c.id))) return null;
+    final state = widget.state;
+    // Runs of adjacent columns of the same group and frozen zone.
+    final cells = <PinnedCell>[];
+    var i = 0;
+    while (i < cols.length) {
+      final group = groupOf[cols[i].id];
+      final pin = state.pinOf(cols[i].definition);
+      var width = widths[i];
+      var j = i + 1;
+      while (group != null &&
+          j < cols.length &&
+          identical(groupOf[cols[j].id], group) &&
+          state.pinOf(cols[j].definition) == pin) {
+        width += widths[j];
+        j++;
+      }
+      cells.add(
+        PinnedCell(
+          width: width,
+          pin: pin,
+          child: group == null
+              ? const SizedBox.shrink()
+              : Container(
+                  alignment: Alignment.center,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: theme.headerPadding.vertical / 4,
+                  ),
+                  decoration: BoxDecoration(
+                    border: BorderDirectional(
+                      start: BorderSide(color: theme.dividerColor),
+                      end: BorderSide(color: theme.dividerColor),
+                    ),
+                  ),
+                  child: Text(
+                    group.title,
+                    style: theme.headerTextStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+        ),
+      );
+      i = j;
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.headerGradient == null
+            ? theme.headerBackgroundColor
+            : null,
+        gradient: theme.headerGradient,
+      ),
+      child: PinnedRow(
+        metrics: metrics,
+        textDirection: direction,
+        pinnedBackground: _headerSolid,
+        pinnedDividerColor: theme.dividerColor,
+        children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          if (widget.expandedRowBuilder != null)
+            const PinnedCell(
+              width: TableGrid.expandColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          if (widget.showSelection)
+            const PinnedCell(
+              width: TableGrid.selectionColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          ...cells,
+        ],
+      ),
     );
   }
 
@@ -432,6 +656,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedBackground: _headerSolid,
         pinnedDividerColor: theme.dividerColor,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -881,6 +1111,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedBackground: background,
         pinnedDividerColor: theme.dividerColor,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -1007,6 +1243,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedDividerColor: theme.dividerColor,
         minHeight: widget.minRowHeight,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -1166,6 +1408,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               pinnedDividerColor: theme.dividerColor,
               minHeight: widget.minRowHeight,
               children: [
+                if (widget.onRowReorder != null)
+                  PinnedCell(
+                    width: TableGrid.reorderColumnWidth,
+                    pin: ColumnPin.start,
+                    child: Center(child: _dragHandle(item)),
+                  ),
                 if (widget.expandedRowBuilder != null)
                   PinnedCell(
                     width: TableGrid.expandColumnWidth,

@@ -11,6 +11,7 @@ import '../../data/exporters/table_export_options.dart';
 import '../../domain/datasource/table_data_source.dart';
 import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_aggregate.dart';
+import '../../domain/models/table_column_group.dart';
 import '../../domain/models/table_snapshot.dart';
 import '../../domain/models/table_state_model.dart';
 import '../../domain/usecases/filter_items_usecase.dart';
@@ -52,6 +53,10 @@ typedef CellEditCallback<T> =
 
 /// Decides whether a given cell can be edited (e.g. from user permissions).
 typedef CanEditCell<T> = bool Function(T item, String columnId);
+
+/// Called when the user drags a row onto another one: move [row] so that it
+/// comes right before [before], or last when [before] is `null`.
+typedef RowReorderCallback<T> = void Function(T row, T? before);
 
 /// Extra content of a group header row (aggregates, actions…).
 typedef GroupHeaderBuilder<T> =
@@ -239,6 +244,23 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Lets users reorder columns by long-pressing and dragging a header.
   final bool allowColumnReorder;
 
+  /// Header bands spanning several columns (stacked headers), e.g.
+  /// `TableColumnGroup(title: 'Amounts', columnIds: ['debit', 'credit'])`.
+  final List<TableColumnGroup> columnGroups;
+
+  /// Lets users reorder rows by dragging the ⠿ handle at the start of a row
+  /// (desktop grid). Update your list and rebuild:
+  ///
+  /// ```dart
+  /// onRowReorder: (row, before) => setState(() {
+  ///   items = [...items]..remove(row);
+  ///   items.insert(before == null ? items.length : items.indexOf(before), row);
+  /// }),
+  /// ```
+  ///
+  /// The handles are disabled while the table is sorted or grouped.
+  final RowReorderCallback<T>? onRowReorder;
+
   /// Gives each column header a menu (right-click, or the ⋮ button shown on
   /// hover): sort ascending / descending, clear the sort, freeze, group by,
   /// auto-fit the width and hide the column (desktop grid).
@@ -409,6 +431,8 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
     this.showColumnMenu = true,
+    this.columnGroups = const [],
+    this.onRowReorder,
     this.enableRangeSelection = true,
     this.enableKeyboardNavigation = true,
     this.groupByColumnId,
@@ -711,6 +735,8 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       allowColumnReorder: widget.allowColumnReorder,
       showColumnMenu: widget.showColumnMenu,
       enableRangeSelection: widget.enableRangeSelection,
+      columnGroups: widget.columnGroups,
+      onRowReorder: widget.onRowReorder,
       enableKeyboardNavigation: widget.enableKeyboardNavigation,
       tristateSort: widget.tristateSort,
       showCardSortBar: widget.showCardSortBar,

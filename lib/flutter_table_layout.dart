@@ -33,6 +33,7 @@ export 'src/domain/datasource/table_data_source.dart';
 export 'src/domain/models/column_definition.dart';
 export 'src/domain/models/column_filter.dart';
 export 'src/domain/models/table_aggregate.dart';
+export 'src/domain/models/table_column_group.dart';
 export 'src/domain/models/table_snapshot.dart';
 export 'src/domain/models/table_state_model.dart';
 export 'src/domain/usecases/filter_items_usecase.dart';
