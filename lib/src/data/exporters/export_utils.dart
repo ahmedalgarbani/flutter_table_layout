@@ -23,6 +23,18 @@ class ExportUtils {
     );
   }
 
+  /// Whether [text] holds right-to-left letters (Arabic, Hebrew, Syriac…
+  /// and their presentation forms).
+  static bool hasRtlText(String text) {
+    for (var i = 0; i < text.length; i++) {
+      final c = text.codeUnitAt(i);
+      if ((c >= 0x0590 && c <= 0x08FF) || (c >= 0xFB1D && c <= 0xFEFC)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// Whether dark text reads better than white text on [argb] (same
   /// estimate as Flutter's `ThemeData.estimateBrightnessForColor`).
   static bool isLightColor(int argb) {

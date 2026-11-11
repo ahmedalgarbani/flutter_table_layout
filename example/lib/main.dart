@@ -703,6 +703,19 @@ class _DashboardHomeState extends State<DashboardHome>
         showSummary: false,
         showSelection: false,
         pageSizes: const [5, 10],
+        // A header band over the three rate columns.
+        columnGroups: [
+          TableColumnGroup(
+            title: _t('أسعار الصرف', 'Exchange rates'),
+            columnIds: const ['rate', 'minRate', 'maxRate'],
+          ),
+        ],
+        // Drag the handle at the start of a row to reorder the currencies.
+        onRowReorder: (row, before) => setState(() {
+          final next = [..._currencies]..remove(row);
+          next.insert(before == null ? next.length : next.indexOf(before), row);
+          _currencies = next;
+        }),
         rowColorBuilder: (c) => c.isActive
             ? null
             : theme.statusNegativeColor.withValues(alpha: 0.06),

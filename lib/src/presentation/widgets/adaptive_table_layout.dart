@@ -11,6 +11,7 @@ import '../../data/exporters/table_export_options.dart';
 import '../../domain/datasource/table_data_source.dart';
 import '../../domain/models/column_definition.dart';
 import '../../domain/models/table_aggregate.dart';
+import '../../domain/models/table_column_group.dart';
 import '../../domain/models/table_snapshot.dart';
 import '../../domain/models/table_state_model.dart';
 import '../../domain/usecases/filter_items_usecase.dart';
@@ -52,6 +53,10 @@ typedef CellEditCallback<T> =
 
 /// Decides whether a given cell can be edited (e.g. from user permissions).
 typedef CanEditCell<T> = bool Function(T item, String columnId);
+
+/// Called when the user drags a row onto another one: move [row] so that it
+/// comes right before [before], or last when [before] is `null`.
+typedef RowReorderCallback<T> = void Function(T row, T? before);
 
 /// Extra content of a group header row (aggregates, actions…).
 typedef GroupHeaderBuilder<T> =
@@ -239,6 +244,34 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// Lets users reorder columns by long-pressing and dragging a header.
   final bool allowColumnReorder;
 
+  /// Header bands spanning several columns (stacked headers), e.g.
+  /// `TableColumnGroup(title: 'Amounts', columnIds: ['debit', 'credit'])`.
+  final List<TableColumnGroup> columnGroups;
+
+  /// Lets users reorder rows by dragging the ⠿ handle at the start of a row
+  /// (desktop grid). Update your list and rebuild:
+  ///
+  /// ```dart
+  /// onRowReorder: (row, before) => setState(() {
+  ///   items = [...items]..remove(row);
+  ///   items.insert(before == null ? items.length : items.indexOf(before), row);
+  /// }),
+  /// ```
+  ///
+  /// The handles are disabled while the table is sorted or grouped.
+  final RowReorderCallback<T>? onRowReorder;
+
+  /// Gives each column header a menu (right-click, or the ⋮ button shown on
+  /// hover): sort ascending / descending, clear the sort, freeze, group by,
+  /// auto-fit the width and hide the column (desktop grid).
+  final bool showColumnMenu;
+
+  /// Lets users select a rectangle of cells (Shift + arrows, Shift + click
+  /// or a mouse drag), copy it with Ctrl / Cmd + C and, with [onCellEdited],
+  /// paste spreadsheet cells into editable cells with Ctrl / Cmd + V.
+  /// Needs [enableKeyboardNavigation] (desktop grid).
+  final bool enableRangeSelection;
+
   /// Arrow keys, Enter / F2 (edit), Space (select), Tab, Home / End,
   /// Page Up / Down, Ctrl + A (select all), Ctrl + C (copy), Escape
   /// (desktop grid).
@@ -303,6 +336,12 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// (`أحمد` = `احمد`, `مدرسة` = `مدرسه`, `١٢٣` = `123`); use
   /// [TableTextNormalizer.caseInsensitive] for plain matching. Read once.
   final TextNormalizer textNormalizer;
+
+  /// Highlights the search text inside the cells (and card texts) of
+  /// searchable columns without a `cellBuilder`. The match follows
+  /// [textNormalizer], so `احمد` is highlighted inside `أحمد`. The color is
+  /// [AdaptiveTableTheme.searchHighlightColor].
+  final bool highlightSearchMatches;
 
   /// Date filter look: one "Period" button with presets and a range calendar
   /// (default) or the legacy separate From / To buttons.
@@ -391,6 +430,10 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.showColumnFilters = false,
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
+    this.showColumnMenu = true,
+    this.columnGroups = const [],
+    this.onRowReorder,
+    this.enableRangeSelection = true,
     this.enableKeyboardNavigation = true,
     this.groupByColumnId,
     this.groupHeaderBuilder,
@@ -410,6 +453,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.queryButtonLabel,
     this.searchDebounce = const Duration(milliseconds: 250),
     this.textNormalizer = TableTextNormalizer.normalize,
+    this.highlightSearchMatches = true,
     this.firstDate,
     this.lastDate,
     this.dateFilterStyle = DateFilterStyle.rangePicker,
@@ -461,6 +505,11 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
   Map<String, DisplayFormatter> get _displayFormatters => {
     for (final c in widget.columns)
       if (c.valueFormatter != null) c.id: c.valueFormatter!,
+  };
+
+  Map<String, Comparator<Object?>> get _comparators => {
+    for (final c in widget.columns)
+      if (c.comparator != null) c.id: c.comparator!,
   };
 
   Map<String, TableAggregator<T>> _buildAggregators() {
@@ -515,7 +564,9 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       rowKey: widget.rowKey,
       displayFormatters: _displayFormatters,
       aggregators: _aggregators,
+      comparators: _comparators,
       initialSnapshot: _initialSnapshot,
+      paginated: widget.showPagination,
     );
     widget.controller?.attach(_cubit);
     _lastSelection = _cubit.selectedItems;
@@ -547,8 +598,10 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       clearDataSource: widget.dataSource == null,
       displayFormatters: _displayFormatters,
       aggregators: _aggregators,
+      comparators: _comparators,
       rowKey: widget.rowKey,
       clearRowKey: widget.rowKey == null,
+      paginated: widget.showPagination,
     );
 
     if (widget.groupByColumnId != oldWidget.groupByColumnId) {
@@ -680,6 +733,10 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       showColumnFilters: widget.showColumnFilters,
       allowColumnResize: widget.allowColumnResize,
       allowColumnReorder: widget.allowColumnReorder,
+      showColumnMenu: widget.showColumnMenu,
+      enableRangeSelection: widget.enableRangeSelection,
+      columnGroups: widget.columnGroups,
+      onRowReorder: widget.onRowReorder,
       enableKeyboardNavigation: widget.enableKeyboardNavigation,
       tristateSort: widget.tristateSort,
       showCardSortBar: widget.showCardSortBar,
@@ -688,6 +745,8 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       groupHeaderBuilder: widget.groupHeaderBuilder,
       minRowHeight: widget.minRowHeight,
       exportRunner: runner,
+      highlightSearchMatches: widget.highlightSearchMatches,
+      textNormalizer: widget.textNormalizer,
       theme: theme,
       labels: labels,
     );

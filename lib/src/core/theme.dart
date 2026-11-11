@@ -139,6 +139,10 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
   /// from the row text color when `null`.
   final Color? skeletonHighlightColor;
 
+  /// Background of the search matches highlighted in the cells. Defaults to
+  /// a translucent amber that reads on light and dark rows.
+  final Color? searchHighlightColor;
+
   const AdaptiveTableTheme({
     required this.cardBackgroundColor,
     required this.borderRadius,
@@ -180,6 +184,7 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
     this.blurSigma = 12.0,
     this.skeletonBaseColor,
     this.skeletonHighlightColor,
+    this.searchHighlightColor,
   });
 
   /// The theme a table uses when none is passed explicitly: the
@@ -558,6 +563,10 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
   Color get effectiveSummaryBackgroundColor =>
       summaryBackgroundColor ?? headerBackgroundColor.withValues(alpha: 0.4);
 
+  /// [searchHighlightColor] or a derived default.
+  Color get effectiveSearchHighlightColor =>
+      searchHighlightColor ?? const Color(0x66FFC107);
+
   /// [skeletonBaseColor] or a derived default.
   Color get effectiveSkeletonBaseColor =>
       skeletonBaseColor ?? _skeletonInk.withValues(alpha: 0.12);
@@ -629,6 +638,7 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
     double? blurSigma,
     Color? skeletonBaseColor,
     Color? skeletonHighlightColor,
+    Color? searchHighlightColor,
   }) {
     return AdaptiveTableTheme(
       cardBackgroundColor: cardBackgroundColor ?? this.cardBackgroundColor,
@@ -671,6 +681,7 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
       skeletonBaseColor: skeletonBaseColor ?? this.skeletonBaseColor,
       skeletonHighlightColor:
           skeletonHighlightColor ?? this.skeletonHighlightColor,
+      searchHighlightColor: searchHighlightColor ?? this.searchHighlightColor,
     );
   }
 
@@ -739,6 +750,10 @@ class AdaptiveTableTheme extends ThemeExtension<AdaptiveTableTheme> {
       skeletonHighlightColor: cn(
         skeletonHighlightColor,
         other.skeletonHighlightColor,
+      ),
+      searchHighlightColor: cn(
+        searchHighlightColor,
+        other.searchHighlightColor,
       ),
     );
   }

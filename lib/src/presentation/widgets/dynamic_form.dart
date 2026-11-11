@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../core/labels.dart';
 import '../../core/theme.dart';
+import '../../domain/utils/table_text_normalizer.dart';
 import 'adaptive_table_layout.dart';
 
 /// The supported data input types for dynamic form fields.
@@ -463,7 +464,10 @@ class _DynamicFormState extends State<DynamicForm> {
         signed: true,
       ),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-]')),
+        // ASCII, Arabic-Indic and Persian digits with their separators.
+        FilteringTextInputFormatter.allow(
+          RegExp('[0-9\u0660-\u0669\u06F0-\u06F9.,\u066B\u066C\\-]'),
+        ),
       ],
       decoration: _getInputDecoration(field),
       validator: (val) {
@@ -482,8 +486,10 @@ class _DynamicFormState extends State<DynamicForm> {
   }
 
   /// Accepts `1234.5` and `1,234.5`.
-  static num? _parseNum(String text) =>
-      num.tryParse(text) ?? num.tryParse(text.replaceAll(',', ''));
+  static num? _parseNum(String raw) {
+    final text = TableTextNormalizer.digitsToAscii(raw);
+    return num.tryParse(text) ?? num.tryParse(text.replaceAll(',', ''));
+  }
 
   Widget _buildDropdownInput(DynamicFormField field) {
     final items = _fieldOptions[field.id] ?? const <String>[];

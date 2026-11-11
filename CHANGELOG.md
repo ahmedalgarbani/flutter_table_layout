@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0
+
+A third review. Every fix below was first reproduced on 0.2.0 with a failing test (263 tests, up from 226).
+
+### Compatibility
+* **The `excel` dependency is gone.** It has not been updated since 2024 and pinned `archive ^3`, `xml <7` and `equatable ^2`, so an app using `archive ^4`, `xml ^7`, `equatable ^3`, `pdf ^3.13` or `printing ^5.15` could not install this package at all (`version solving failed`). Excel files are now written by a small built-in writer; the output was checked with `unzip`, openpyxl and LibreOffice.
+* Excel exports got better on the way: the header row is **frozen** and has **filter buttons** (`freezeHeader` / `autoFilter` on `ExcelExporter.generateExcel`), dates are real date cells with a `yyyy-mm-dd` format.
+
+### Fixes
+* **A column declared `isVisible: false` and shown by the user from the columns menu was neither searched nor exported.**
+* **Arabic-Indic digits (`١٢٣`) were rejected** by the inline number editor ("Invalid number format"), by the number fields of dynamic forms (the digits could not even be typed) and by the typed dates of the date panel. They are accepted everywhere now, with `٫` and `٬`; typed dates also accept `2026/1/5`.
+* **PDF: Arabic text was unreadable in left-to-right documents** (an English app with Arabic names in its rows): letters were disconnected and reversed. Texts holding Arabic are now shaped whatever the document direction.
+* **Restoring a paginated snapshot into a table with `showPagination: false`** showed only the first page, with no way to reach the other rows.
+
+### New
+* **Search highlighting:** the search text is highlighted inside the cells and cards, following the Arabic-aware matching (`احمد` is highlighted inside `أَحْمَد`). `highlightSearchMatches`, `AdaptiveTableTheme.searchHighlightColor`, `TableTextNormalizer.matchRanges`.
+* **Cell range selection, copy and paste:** Shift + arrows, Shift + click or a mouse drag select a rectangle of cells; Ctrl / Cmd + C copies it as spreadsheet cells; **Ctrl / Cmd + V pastes cells copied from Excel / Google Sheets** into the editable cells (typed per column, validated with `cellValidator`, saved through `onCellEdited`; one copied value fills the whole selection). Ctrl + A selects every cell when the table has no row checkboxes. `enableRangeSelection`.
+* **Column menu:** right-click a header (or the ⋮ button shown on hover): sort ascending / descending, clear sort, freeze, group by, **auto-fit width**, hide. `showColumnMenu`.
+* **Stacked headers:** `columnGroups: [TableColumnGroup(title: 'Amounts', columnIds: ['debit', 'credit'])]`.
+* **Row drag & drop:** `onRowReorder: (row, before) { … }` adds a drag handle to each row (disabled while sorted or grouped).
+* **Custom sort order per column:** `AdaptiveTableColumn.comparator`, with `FilterItemsUseCase.naturalCompare` ready to use (`INV-9` before `INV-10`).
+* `TableTextNormalizer.tryParseDay`, `ExportUtils.hasRtlText`; new labels in English and Arabic (`sortAscending`, `sortDescending`, `clearSort`, `hideColumn`, `autoFitColumn`, `columnMenu`, `groupByColumn`, `reorderRow`, `reorderUnavailable`, `pasted`).
+
+### Behaviour changes
+* `ExcelExporter.mapToCellValue` (it returned a type of the `excel` package) is removed.
+* Search matches are highlighted by default; turn it off with `highlightSearchMatches: false`.
+* Shift + arrows now extend the cell selection, and Escape first drops the range.
+
+### Known limitation
+* PDF: the `pdf` package's Arabic shaping loses the space after a word ending in `ر` and misplaces a final detached `ي` with some fonts (seen with Cairo). This comes from the dependency, not from this package.
+
 ## 0.2.0
 
 A full review of 0.1.4: every bug below was first reproduced on 0.1.4, then fixed and covered by a test (226 tests, up from 153).

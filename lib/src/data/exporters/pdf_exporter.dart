@@ -53,7 +53,30 @@ class PdfExporter {
       columns,
       hiddenColumnIds: hiddenColumnIds,
     );
-    final headers = visibleCols.map((c) => c.title).toList();
+    // The pdf package only shapes Arabic in right-to-left text, so in a
+    // left-to-right document every text holding Arabic / Hebrew letters is
+    // given its own direction (an English app with Arabic names in its rows).
+    final docDirection = isRtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+    pw.TextDirection directionOf(String text) =>
+        ExportUtils.hasRtlText(text) ? pw.TextDirection.rtl : docDirection;
+    final headerText = ExportUtils.isLightColor(accentColor.toInt())
+        ? PdfColors.black
+        : PdfColors.white;
+    final headerStyle = pw.TextStyle(
+      fontWeight: pw.FontWeight.bold,
+      color: headerText,
+      fontSize: 10,
+    );
+    final headers = <Object>[
+      for (final c in visibleCols)
+        !isRtl && ExportUtils.hasRtlText(c.title)
+            ? pw.Text(
+                c.title,
+                style: headerStyle,
+                textDirection: pw.TextDirection.rtl,
+              )
+            : c.title,
+    ];
     final rows = items.map((item) {
       return visibleCols.map((col) {
         final raw = valueProviders[col.id]?.call(item);
@@ -72,9 +95,13 @@ class PdfExporter {
       ]);
       totalsRowNum = rows.length;
     }
-    final headerText = ExportUtils.isLightColor(accentColor.toInt())
-        ? PdfColors.black
-        : PdfColors.white;
+    const cellStyle = pw.TextStyle(fontSize: 9.5);
+    // Not const: the constructor is only const from pdf 3.13.
+    // ignore: prefer_const_constructors
+    final totalStyle = pw.TextStyle(
+      fontSize: 9.5,
+      fontWeight: pw.FontWeight.bold,
+    );
 
     final format =
         pageFormat ??
@@ -117,6 +144,7 @@ class PdfExporter {
                       children: [
                         pw.Text(
                           title,
+                          textDirection: directionOf(title),
                           style: pw.TextStyle(
                             fontSize: 20,
                             fontWeight: pw.FontWeight.bold,
@@ -127,6 +155,7 @@ class PdfExporter {
                           pw.SizedBox(height: 4),
                           pw.Text(
                             subtitle,
+                            textDirection: directionOf(subtitle),
                             style: const pw.TextStyle(
                               fontSize: 11,
                               color: PdfColors.grey600,
@@ -156,20 +185,25 @@ class PdfExporter {
                   color: PdfColors.grey300,
                   width: 0.5,
                 ),
-                headerStyle: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  color: headerText,
-                  fontSize: 10,
-                ),
-                cellStyle: const pw.TextStyle(fontSize: 9.5),
+                headerStyle: headerStyle,
+                cellStyle: cellStyle,
                 textStyleBuilder: totalsRowNum == null
                     ? null
-                    : (index, data, rowNum) => rowNum == totalsRowNum
-                          ? pw.TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: pw.FontWeight.bold,
-                            )
-                          : null,
+                    : (index, data, rowNum) =>
+                          rowNum == totalsRowNum ? totalStyle : null,
+                cellBuilder: isRtl
+                    ? null
+                    : (index, data, rowNum) {
+                        final text = '$data';
+                        if (!ExportUtils.hasRtlText(text)) return null;
+                        return pw.Text(
+                          text,
+                          style: rowNum == totalsRowNum
+                              ? totalStyle
+                              : cellStyle,
+                          textDirection: pw.TextDirection.rtl,
+                        );
+                      },
                 cellDecoration: totalsRowNum == null
                     ? null
                     : (index, data, rowNum) => rowNum == totalsRowNum

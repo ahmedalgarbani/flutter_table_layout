@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,6 +11,8 @@ import '../../../core/theme.dart';
 import '../../../data/exporters/export_utils.dart';
 import '../../../domain/models/column_definition.dart';
 import '../../../domain/models/table_aggregate.dart';
+import '../../../domain/models/table_column_group.dart';
+import '../../../domain/utils/table_text_normalizer.dart';
 import '../../cubit/table_cubit.dart';
 import '../../cubit/table_cubit_state.dart';
 import '../../export/table_export_runner.dart';
@@ -40,8 +43,12 @@ class TableGrid<T> extends StatefulWidget {
   final bool showColumnFilters;
   final bool allowColumnResize;
   final bool allowColumnReorder;
+  final bool showColumnMenu;
   final bool enableKeyboardNavigation;
+  final bool enableRangeSelection;
   final bool tristateSort;
+  final List<TableColumnGroup> columnGroups;
+  final RowReorderCallback<T>? onRowReorder;
   final CellEditCallback<T>? onCellEdited;
   final CanEditCell<T>? canEditCell;
   final GroupHeaderBuilder<T>? groupHeaderBuilder;
@@ -64,8 +71,12 @@ class TableGrid<T> extends StatefulWidget {
     this.showColumnFilters = false,
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
+    this.showColumnMenu = true,
     this.enableKeyboardNavigation = true,
+    this.enableRangeSelection = true,
     this.tristateSort = false,
+    this.columnGroups = const [],
+    this.onRowReorder,
     this.onCellEdited,
     this.canEditCell,
     this.groupHeaderBuilder,
@@ -78,10 +89,22 @@ class TableGrid<T> extends StatefulWidget {
 
   static const double selectionColumnWidth = 48;
   static const double expandColumnWidth = 44;
+  static const double reorderColumnWidth = 36;
   static const double minFlexColumnWidth = 80;
+
+  /// Splits spreadsheet clipboard text into rows of cells (tab-separated,
+  /// with `"quoted"` cells that may hold tabs, line breaks and `""`).
+  static List<List<String>> parseClipboard(String text) =>
+      _TableGridState.parseClipboard(text);
 
   @override
   State<TableGrid<T>> createState() => _TableGridState<T>();
+}
+
+/// What a dragged row carries (see `onRowReorder`).
+class RowDragData<T> {
+  final T item;
+  const RowDragData(this.item);
 }
 
 /// The cell being edited: its row key, its row index (fallback when the
@@ -107,6 +130,38 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
   /// Focused cell: index among displayed rows / among visible columns.
   ({int row, int col})? _focus;
+
+  /// The other corner of the selected cell range (`null` = only [_focus]).
+  ({int row, int col})? _anchor;
+  bool _dragSelecting = false;
+  bool _pasting = false;
+
+  /// The selected rectangle of cells, or `null` without a focused cell.
+  ({int top, int left, int bottom, int right})? get _range {
+    final f = _focus;
+    if (f == null) return null;
+    final a = _anchor ?? f;
+    return (
+      top: math.min(a.row, f.row),
+      left: math.min(a.col, f.col),
+      bottom: math.max(a.row, f.row),
+      right: math.max(a.col, f.col),
+    );
+  }
+
+  bool get _hasRange {
+    final r = _range;
+    return r != null && (r.top != r.bottom || r.left != r.right);
+  }
+
+  bool _inRange(int row, int col) {
+    final r = _range;
+    return r != null &&
+        row >= r.top &&
+        row <= r.bottom &&
+        col >= r.left &&
+        col <= r.right;
+  }
 
   // Snapshot of the last build, used by the keyboard handler.
   List<RowEntry<T>> _rows = const [];
@@ -141,6 +196,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     double viewport,
   ) {
     final double system =
+        (widget.onRowReorder != null ? TableGrid.reorderColumnWidth : 0) +
         (widget.expandedRowBuilder != null ? TableGrid.expandColumnWidth : 0) +
         (widget.showSelection ? TableGrid.selectionColumnWidth : 0);
     final widths = List<double?>.filled(cols.length, null);
@@ -214,6 +270,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         (_focus!.row >= _rows.length || _focus!.col >= cols.length)) {
       _focus = null;
     }
+    if (_anchor != null &&
+        (_focus == null ||
+            _anchor!.row >= _rows.length ||
+            _anchor!.col >= cols.length)) {
+      _anchor = null;
+    }
     final direction = Directionality.of(context);
 
     return LayoutBuilder(
@@ -233,6 +295,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         final contentWidth = math.max(layout.total, viewport);
 
         final header = _buildHeader(cols, layout.widths, metrics, direction);
+        final groupBand = _buildGroupBand(
+          cols,
+          layout.widths,
+          metrics,
+          direction,
+        );
         final filterRow = widget.showColumnFilters
             ? _buildFilterRow(cols, layout.widths, metrics, direction)
             : null;
@@ -242,7 +310,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
         Widget buildEntry(int index) {
           final entry = entries[index];
-          final child = switch (entry) {
+          Widget child = switch (entry) {
             GroupEntry<T>() => _buildGroupHeader(entry.info, metrics, viewport),
             RowEntry<T>() => _buildRow(
               entry,
@@ -253,6 +321,14 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               viewport,
             ),
           };
+          if (entry is RowEntry<T> && _canReorderRows) {
+            child = _rowDropTarget(
+              before: entry.item,
+              child: child,
+              // The last row also takes drops meant for "after it".
+              last: index == entries.length - 1,
+            );
+          }
           if (index == 0) return child;
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -308,6 +384,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (groupBand != null) ...[
+              groupBand,
+              Divider(height: 1, color: theme.dividerColor),
+            ],
             header,
             Divider(height: 1, thickness: 1, color: theme.dividerColor),
             if (filterRow != null) ...[
@@ -343,6 +423,199 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         }
         return grid;
       },
+    );
+  }
+
+  // ---------------------------------------------------------- row reorder
+
+  /// Rows can only be moved in their own order: not while sorted or grouped.
+  bool get _canReorderRows =>
+      widget.onRowReorder != null &&
+      widget.state.tableState.sorts.isEmpty &&
+      widget.state.tableState.groupByColumnId == null;
+
+  Widget _dragHandle(T item) {
+    final enabled = _canReorderRows;
+    final icon = Icon(
+      Icons.drag_indicator,
+      size: 18,
+      color: theme.actionIconColor.withValues(alpha: enabled ? 0.8 : 0.25),
+    );
+    if (!enabled) {
+      return Tooltip(message: labels.reorderUnavailable, child: icon);
+    }
+    return Draggable<RowDragData<T>>(
+      data: RowDragData<T>(item),
+      axis: Axis.vertical,
+      feedback: Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(6),
+        color: widget.renderer.opaque(theme.rowBackgroundColor),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.drag_indicator, size: 18, color: theme.accentColor),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  _cols.isEmpty
+                      ? ''
+                      : widget.renderer.textFor(_cols.first, item),
+                  style: theme.rowTextStyle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Tooltip(message: labels.reorderRow, child: icon),
+      ),
+    );
+  }
+
+  /// Dropping a dragged row on [child] moves it before [before]; on the
+  /// lower half of the [last] row it moves to the end.
+  Widget _rowDropTarget({
+    required T before,
+    required Widget child,
+    required bool last,
+  }) {
+    final state = widget.state;
+    return Builder(
+      builder: (targetContext) {
+        bool after(DragTargetDetails<RowDragData<T>> d) {
+          if (!last) return false;
+          final box = targetContext.findRenderObject();
+          if (box is! RenderBox || !box.hasSize) return false;
+          return box.globalToLocal(d.offset).dy > box.size.height / 2;
+        }
+
+        return DragTarget<RowDragData<T>>(
+          onWillAcceptWithDetails: (d) =>
+              state.keyOf(d.data.item) != state.keyOf(before) || last,
+          onAcceptWithDetails: (d) {
+            final toEnd = after(d);
+            if (!toEnd && state.keyOf(d.data.item) == state.keyOf(before)) {
+              return;
+            }
+            widget.onRowReorder!(d.data.item, toEnd ? null : before);
+          },
+          builder: (context, candidates, rejected) => DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              border: candidates.isEmpty
+                  ? null
+                  : Border(top: BorderSide(color: theme.accentColor, width: 2)),
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  // --------------------------------------------------------- column groups
+
+  /// The band of [TableColumnGroup] titles above the column headers, or
+  /// `null` when no displayed column belongs to a group.
+  Widget? _buildGroupBand(
+    List<AdaptiveTableColumn<T>> cols,
+    List<double> widths,
+    GridHorizontalMetrics metrics,
+    TextDirection direction,
+  ) {
+    if (widget.columnGroups.isEmpty) return null;
+    final groupOf = <String, TableColumnGroup>{
+      for (final g in widget.columnGroups)
+        for (final id in g.columnIds) id: g,
+    };
+    if (!cols.any((c) => groupOf.containsKey(c.id))) return null;
+    final state = widget.state;
+    // Runs of adjacent columns of the same group and frozen zone.
+    final cells = <PinnedCell>[];
+    var i = 0;
+    while (i < cols.length) {
+      final group = groupOf[cols[i].id];
+      final pin = state.pinOf(cols[i].definition);
+      var width = widths[i];
+      var j = i + 1;
+      while (group != null &&
+          j < cols.length &&
+          identical(groupOf[cols[j].id], group) &&
+          state.pinOf(cols[j].definition) == pin) {
+        width += widths[j];
+        j++;
+      }
+      cells.add(
+        PinnedCell(
+          width: width,
+          pin: pin,
+          child: group == null
+              ? const SizedBox.shrink()
+              : Container(
+                  alignment: Alignment.center,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: theme.headerPadding.vertical / 4,
+                  ),
+                  decoration: BoxDecoration(
+                    border: BorderDirectional(
+                      start: BorderSide(color: theme.dividerColor),
+                      end: BorderSide(color: theme.dividerColor),
+                    ),
+                  ),
+                  child: Text(
+                    group.title,
+                    style: theme.headerTextStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+        ),
+      );
+      i = j;
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.headerGradient == null
+            ? theme.headerBackgroundColor
+            : null,
+        gradient: theme.headerGradient,
+      ),
+      child: PinnedRow(
+        metrics: metrics,
+        textDirection: direction,
+        pinnedBackground: _headerSolid,
+        pinnedDividerColor: theme.dividerColor,
+        children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          if (widget.expandedRowBuilder != null)
+            const PinnedCell(
+              width: TableGrid.expandColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          if (widget.showSelection)
+            const PinnedCell(
+              width: TableGrid.selectionColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
+          ...cells,
+        ],
+      ),
     );
   }
 
@@ -383,6 +656,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedBackground: _headerSolid,
         pinnedDividerColor: theme.dividerColor,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -458,36 +737,40 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     }
 
     Widget content = _HoverRegion(
-      builder: (context, hovered) => Padding(
-        padding: theme.headerPadding,
-        child: Row(
-          mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
-          children: [
-            Flexible(child: label),
-            if (canSort) ...[
-              const SizedBox(width: 4),
-              // Only the sorted columns show their arrow; the others reveal
-              // it on hover, which keeps the header calm.
-              AnimatedOpacity(
-                duration: const Duration(milliseconds: 150),
-                opacity: isSorted ? 1.0 : (hovered ? 0.45 : 0.0),
-                child: AnimatedRotation(
-                  duration: const Duration(milliseconds: 200),
-                  turns: isSorted && !isAscending ? 0.5 : 0,
-                  child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
-                ),
-              ),
-              if (isSorted && sorts.length > 1)
-                Text(
-                  '${sortIndex + 1}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: iconColor,
+      builder: (context, hovered) => _withMenuButton(
+        col,
+        hovered: hovered,
+        child: Padding(
+          padding: theme.headerPadding,
+          child: Row(
+            mainAxisAlignment: CellRenderer.mainAxisAlignment(col.alignment),
+            children: [
+              Flexible(child: label),
+              if (canSort) ...[
+                const SizedBox(width: 4),
+                // Only the sorted columns show their arrow; the others reveal
+                // it on hover, which keeps the header calm.
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: isSorted ? 1.0 : (hovered ? 0.45 : 0.0),
+                  child: AnimatedRotation(
+                    duration: const Duration(milliseconds: 200),
+                    turns: isSorted && !isAscending ? 0.5 : 0,
+                    child: Icon(Icons.arrow_upward, size: 14, color: iconColor),
                   ),
                 ),
+                if (isSorted && sorts.length > 1)
+                  Text(
+                    '${sortIndex + 1}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: iconColor,
+                    ),
+                  ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -503,6 +786,14 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           ),
           child: content,
         ),
+      );
+    }
+
+    if (widget.showColumnMenu) {
+      content = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapUp: (d) => _openColumnMenu(col, d.globalPosition),
+        child: content,
       );
     }
 
@@ -543,6 +834,212 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         ),
       ],
     );
+  }
+
+  /// Shows the ⋮ button of the column menu over the header's end while the
+  /// header is hovered.
+  Widget _withMenuButton(
+    AdaptiveTableColumn<T> col, {
+    required bool hovered,
+    required Widget child,
+  }) {
+    if (!widget.showColumnMenu || !hovered) return child;
+    final color = theme.headerTextStyle.color ?? theme.actionIconColor;
+    return Stack(
+      children: [
+        child,
+        PositionedDirectional(
+          end: 10,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: Builder(
+              builder: (buttonContext) => Tooltip(
+                message: labels.columnMenu,
+                child: Material(
+                  color: _headerSolid,
+                  shape: const CircleBorder(),
+                  child: InkResponse(
+                    radius: 14,
+                    onTap: () {
+                      final box =
+                          buttonContext.findRenderObject()! as RenderBox;
+                      _openColumnMenu(
+                        col,
+                        box.localToGlobal(box.size.bottomLeft(Offset.zero)),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Icon(Icons.more_vert, size: 16, color: color),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The column menu: sort, freeze, group, auto-fit, hide.
+  Future<void> _openColumnMenu(
+    AdaptiveTableColumn<T> col,
+    Offset position,
+  ) async {
+    final state = widget.state;
+    final cubit = _cubit;
+    final hasValues = widget.renderer.valueProviders.containsKey(col.id);
+    final canSort = col.isSortable && hasValues;
+    final sorts = state.tableState.sorts;
+    final sort = sorts.where((s) => s.columnId == col.id).firstOrNull;
+    final pin = state.pinOf(col.definition);
+    final grouped = state.tableState.groupByColumnId == col.id;
+    final visibleCount = widget.columns.length - state.hiddenColumnIds.length;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+
+    PopupMenuItem<String> item(
+      String value,
+      IconData icon,
+      String text, {
+      bool active = false,
+    }) => PopupMenuItem<String>(
+      value: value,
+      height: 40,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: active ? theme.accentColor : theme.actionIconColor,
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: theme.rowTextStyle.copyWith(
+                fontSize: 13,
+                color: active ? theme.accentColor : null,
+                fontWeight: active ? FontWeight.w600 : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & Size.zero,
+        Offset.zero & overlay.size,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      color: theme.cardBackgroundColor.withValues(alpha: 1),
+      items: [
+        if (canSort) ...[
+          item(
+            'asc',
+            Icons.arrow_upward,
+            labels.sortAscending,
+            active: sort?.ascending == true,
+          ),
+          item(
+            'desc',
+            Icons.arrow_downward,
+            labels.sortDescending,
+            active: sort?.ascending == false,
+          ),
+          if (sort != null) item('unsort', Icons.close, labels.clearSort),
+          const PopupMenuDivider(),
+        ],
+        if (pin != ColumnPin.start)
+          item('pinStart', Icons.push_pin_outlined, labels.freezeStart),
+        if (pin != ColumnPin.end)
+          item('pinEnd', Icons.push_pin_outlined, labels.freezeEnd),
+        if (pin != ColumnPin.none)
+          item('unpin', Icons.push_pin, labels.unfreeze, active: true),
+        if (col.isGroupable && hasValues)
+          grouped
+              ? item(
+                  'ungroup',
+                  Icons.account_tree_outlined,
+                  labels.noGrouping,
+                  active: true,
+                )
+              : item(
+                  'group',
+                  Icons.account_tree_outlined,
+                  labels.groupByColumn(col.title),
+                ),
+        if (col.isResizable && widget.allowColumnResize)
+          item('fit', Icons.fit_screen_outlined, labels.autoFitColumn),
+        if (col.isHideable && visibleCount > 1) ...[
+          const PopupMenuDivider(),
+          item('hide', Icons.visibility_off_outlined, labels.hideColumn),
+        ],
+      ],
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case 'asc':
+        cubit.sortBy(col.id);
+      case 'desc':
+        cubit.sortBy(col.id, ascending: false);
+      case 'unsort':
+        cubit.setSorts(sorts.where((s) => s.columnId != col.id).toList());
+      case 'pinStart':
+        cubit.setColumnPin(col.id, ColumnPin.start);
+      case 'pinEnd':
+        cubit.setColumnPin(col.id, ColumnPin.end);
+      case 'unpin':
+        cubit.setColumnPin(col.id, ColumnPin.none);
+      case 'group':
+        cubit.groupBy(col.id);
+      case 'ungroup':
+        cubit.groupBy(null);
+      case 'fit':
+        cubit.setColumnWidth(col.id, _fitWidth(col));
+      case 'hide':
+        cubit.setColumnVisibility(col.id, false);
+    }
+  }
+
+  /// The width that shows [col]'s title and the text of its displayed rows
+  /// (the first 500) without truncation.
+  double _fitWidth(AdaptiveTableColumn<T> col) {
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    // Title + sort arrow and menu button.
+    var content = measure(col.title, theme.headerTextStyle) + 44;
+    final measurable =
+        col.cellBuilder == null &&
+        widget.renderer.valueProviders.containsKey(col.id);
+    if (measurable) {
+      for (final row in _rows.take(500)) {
+        content = math.max(
+          content,
+          measure(widget.renderer.textFor(col, row.item), theme.rowTextStyle),
+        );
+      }
+    }
+    final padding = theme.rowPadding.resolve(direction).horizontal;
+    return (content + padding + 6).clamp(col.minWidth, 640).ceilToDouble();
   }
 
   /// Keeps the columns before [col] at their current width while it is
@@ -614,6 +1111,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedBackground: background,
         pinnedDividerColor: theme.dividerColor,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -740,6 +1243,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
         pinnedDividerColor: theme.dividerColor,
         minHeight: widget.minRowHeight,
         children: [
+          if (widget.onRowReorder != null)
+            const PinnedCell(
+              width: TableGrid.reorderColumnWidth,
+              pin: ColumnPin.start,
+              child: SizedBox.shrink(),
+            ),
           if (widget.expandedRowBuilder != null)
             const PinnedCell(
               width: TableGrid.expandColumnWidth,
@@ -899,6 +1408,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
               pinnedDividerColor: theme.dividerColor,
               minHeight: widget.minRowHeight,
               children: [
+                if (widget.onRowReorder != null)
+                  PinnedCell(
+                    width: TableGrid.reorderColumnWidth,
+                    pin: ColumnPin.start,
+                    child: Center(child: _dragHandle(item)),
+                  ),
                 if (widget.expandedRowBuilder != null)
                   PinnedCell(
                     width: TableGrid.expandColumnWidth,
@@ -1016,16 +1531,42 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           // A dropdown editor has no "tap outside" of its own: clicking
           // another cell closes it.
           if (!editing && _editing != null && _editingDropdown) _cancelEdit();
-          if (_focus?.row != rowIndex || _focus?.col != colIndex) {
-            setState(() => _focus = (row: rowIndex, col: colIndex));
+          final shift = HardwareKeyboard.instance.isShiftPressed;
+          final next = (row: rowIndex, col: colIndex);
+          final anchor = shift ? (_anchor ?? _focus) : null;
+          if (_focus != next || _anchor != anchor) {
+            setState(() {
+              _focus = next;
+              _anchor = anchor == next ? null : anchor;
+            });
           }
+          _dragSelecting = widget.enableRangeSelection && !editing;
           if (!editing) _focusNode.requestFocus();
         },
+        onPointerUp: (_) => _dragSelecting = false,
+        onPointerCancel: (_) => _dragSelecting = false,
         child: child,
       );
+      if (widget.enableRangeSelection) {
+        // Dragging with the mouse over other cells extends the range.
+        child = MouseRegion(
+          opaque: false,
+          onEnter: (event) {
+            if (!_dragSelecting || event.buttons & kPrimaryButton == 0) return;
+            final f = _focus;
+            if (f == null || (f.row == rowIndex && f.col == colIndex)) return;
+            setState(() {
+              _anchor ??= f;
+              _focus = (row: rowIndex, col: colIndex);
+            });
+          },
+          child: child,
+        );
+      }
       // The wrapper is always present (only its border changes) so that the
       // cell subtree, and its double-tap recognizer, survive focus changes.
       final focused = _focus?.row == rowIndex && _focus?.col == colIndex;
+      final ranged = _hasRange && _inRange(rowIndex, colIndex);
       final inner = child;
       child = Builder(
         builder: (cellContext) {
@@ -1033,6 +1574,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           return DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
+              color: ranged ? theme.accentColor.withValues(alpha: 0.14) : null,
               border: Border.all(
                 color: focused && (_focusNode.hasFocus || editing)
                     ? theme.accentColor
@@ -1095,7 +1637,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     bool isNumber,
   ) {
     if (!isNumber) return _commit(item, col, text);
-    final trimmed = text.trim();
+    final trimmed = TableTextNormalizer.digitsToAscii(text.trim());
     if (trimmed.isEmpty) return _commit(item, col, null);
     final n =
         num.tryParse(trimmed) ?? num.tryParse(trimmed.replaceAll(',', ''));
@@ -1232,13 +1774,21 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     int col, {
     required bool forward,
     bool startEditing = false,
+    bool extend = false,
   }) {
     if (_rows.isEmpty || _cols.isEmpty) return;
     final next = (
       row: row.clamp(0, _rows.length - 1),
       col: col.clamp(0, _cols.length - 1),
     );
-    setState(() => _focus = next);
+    setState(() {
+      // Shift keeps the other corner of the range where the focus was.
+      _anchor = extend && widget.enableRangeSelection
+          ? (_anchor ?? _focus)
+          : null;
+      if (_anchor == next) _anchor = null;
+      _focus = next;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _focusedCellContext;
       if (ctx != null && ctx.mounted) {
@@ -1260,7 +1810,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
   /// Moves the focus by [dRow] / [dCol]. The first move focuses the first
   /// cell.
-  void _moveFocus(int dRow, int dCol) {
+  void _moveFocus(int dRow, int dCol, {bool extend = false}) {
     final current = _focus;
     if (current == null) {
       _focusCell(0, 0, forward: true);
@@ -1270,6 +1820,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       current.row + dRow,
       current.col + dCol,
       forward: dRow > 0 || dCol > 0,
+      extend: extend,
     );
   }
 
@@ -1287,7 +1838,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final index =
         current.row * _cols.length + current.col + (backwards ? -1 : 1);
     if (index < 0 || index >= _rows.length * _cols.length) {
-      setState(() => _focus = null);
+      setState(() {
+        _focus = null;
+        _anchor = null;
+      });
       return false;
     }
     _focusCell(
@@ -1305,6 +1859,26 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     if (runner == null) return false;
     final state = widget.state;
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final range = _range;
+    if (range != null && _hasRange) {
+      // The selected cells, as displayed, tab-separated like a spreadsheet.
+      String clean(String s) => s.replaceAll(RegExp(r'[\t\r\n]+'), ' ');
+      final text = [
+        for (var r = range.top; r <= range.bottom; r++)
+          [
+            for (var c = range.left; c <= range.right; c++)
+              clean(widget.renderer.textFor(_cols[c], _rows[r].item)),
+          ].join('\t'),
+      ].join('\n');
+      unawaited(
+        runner.copyText(
+          text,
+          messenger: messenger,
+          count: range.bottom - range.top + 1,
+        ),
+      );
+      return true;
+    }
     if (state.selectedItems.isNotEmpty) {
       unawaited(
         runner.copyRows(
@@ -1320,6 +1894,152 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final text = widget.renderer.textFor(_cols[f.col], _rows[f.row].item);
     unawaited(runner.copyText(text, messenger: messenger));
     return true;
+  }
+
+  /// Splits spreadsheet clipboard text into rows of cells (tab-separated,
+  /// with `"quoted"` cells that may hold tabs, line breaks and `""`).
+  static List<List<String>> parseClipboard(String text) {
+    final rows = <List<String>>[];
+    var row = <String>[];
+    final cell = StringBuffer();
+    var quoted = false;
+    var cellStart = true;
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      if (quoted) {
+        if (ch == '"') {
+          if (i + 1 < text.length && text[i + 1] == '"') {
+            cell.write('"');
+            i++;
+          } else {
+            quoted = false;
+          }
+        } else {
+          cell.write(ch);
+        }
+      } else if (ch == '"' && cellStart) {
+        quoted = true;
+        cellStart = false;
+      } else if (ch == '\t') {
+        row.add(cell.toString());
+        cell.clear();
+        cellStart = true;
+      } else if (ch == '\n' || ch == '\r') {
+        if (ch == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;
+        row.add(cell.toString());
+        cell.clear();
+        rows.add(row);
+        row = <String>[];
+        cellStart = true;
+      } else {
+        cell.write(ch);
+        cellStart = false;
+      }
+    }
+    if (cell.isNotEmpty || row.isNotEmpty) {
+      row.add(cell.toString());
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  static const _noValue = Object();
+
+  /// Converts pasted [text] to the type [col] edits, or [_noValue] when it
+  /// does not fit (e.g. letters pasted into a number column).
+  Object? _coerce(AdaptiveTableColumn<T> col, T item, String text) {
+    final current = widget.renderer.rawValue(col, item);
+    final editor = col.editor ?? CellEditor.infer(current);
+    final t = text.trim();
+    switch (editor.type) {
+      case CellEditorType.text:
+        return text;
+      case CellEditorType.number:
+        if (t.isEmpty) return null;
+        final ascii = TableTextNormalizer.digitsToAscii(t);
+        return num.tryParse(ascii) ??
+            num.tryParse(ascii.replaceAll(',', '')) ??
+            _noValue;
+      case CellEditorType.boolean:
+        return switch (t.toLowerCase()) {
+          'true' || 'yes' || '1' || '✓' || 'نعم' => true,
+          'false' || 'no' || '0' || '✗' || 'لا' => false,
+          _ => _noValue,
+        };
+      case CellEditorType.date:
+        return TableTextNormalizer.tryParseDay(t) ??
+            DateTime.tryParse(t) ??
+            _noValue;
+      case CellEditorType.dropdown:
+        final label = editor.optionLabel ?? ExportUtils.formatValue;
+        for (final option in editor.options) {
+          if (label(option) == t || '$option' == t) return option;
+        }
+        return _noValue;
+    }
+  }
+
+  /// Ctrl / Cmd + V: writes the clipboard's cells into the editable cells
+  /// starting at the top-left of the selection (one copied value fills the
+  /// whole selected range). Cells that are not editable, or whose value
+  /// does not fit or is rejected, are skipped.
+  Future<void> _paste() async {
+    final onEdit = widget.onCellEdited;
+    final start = _range;
+    if (onEdit == null || start == null || _pasting) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (!mounted || text == null || text.isEmpty) return;
+    final cells = parseClipboard(text);
+    if (cells.isEmpty) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final single = cells.length == 1 && cells.first.length == 1;
+    final height = single ? start.bottom - start.top + 1 : cells.length;
+    _pasting = true;
+    var written = 0;
+    try {
+      for (var dr = 0; dr < height; dr++) {
+        final source = single ? cells.first : cells[dr];
+        final width = single ? start.right - start.left + 1 : source.length;
+        var rowEdited = false;
+        for (var dc = 0; dc < width; dc++) {
+          final r = start.top + dr;
+          final c = start.left + dc;
+          if (r >= _rows.length || c >= _cols.length) continue;
+          if (rowEdited) {
+            // The app usually replaced the row by a new instance: wait for
+            // the rebuild so the next cell edits the fresh one.
+            await WidgetsBinding.instance.endOfFrame;
+            await WidgetsBinding.instance.endOfFrame;
+            if (!mounted || r >= _rows.length || c >= _cols.length) return;
+          }
+          final item = _rows[r].item;
+          final col = _cols[c];
+          if (!_canEdit(item, col)) continue;
+          final value = _coerce(col, item, single ? source.first : source[dc]);
+          if (identical(value, _noValue)) continue;
+          if (col.cellValidator?.call(value) != null) continue;
+          if (widget.renderer.rawValue(col, item) == value) continue;
+          try {
+            final ok = await onEdit(item, col.id, value);
+            if (!mounted) return;
+            if (ok == false) continue;
+          } catch (_) {
+            if (!mounted) return;
+            continue;
+          }
+          written++;
+          rowEdited = true;
+        }
+      }
+    } finally {
+      _pasting = false;
+    }
+    if (messenger != null && messenger.mounted) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(labels.pasted(written))));
+    }
   }
 
   /// Reaching the rows with Tab shows the first cell as focused.
@@ -1346,22 +2066,29 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final keyboard = HardwareKeyboard.instance;
     final ctrl = keyboard.isControlPressed || keyboard.isMetaPressed;
     final paginated = widget.state.tableState.isPaginated;
+    final shift = keyboard.isShiftPressed;
 
     if (key == LogicalKeyboardKey.arrowDown) {
-      _moveFocus(1, 0);
+      _moveFocus(1, 0, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowUp) {
-      _moveFocus(-1, 0);
+      _moveFocus(-1, 0, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowRight) {
-      _moveFocus(0, rtl ? -1 : 1);
+      _moveFocus(0, rtl ? -1 : 1, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
-      _moveFocus(0, rtl ? 1 : -1);
+      _moveFocus(0, rtl ? 1 : -1, extend: shift);
     } else if (key == LogicalKeyboardKey.home) {
-      _focusCell(ctrl ? 0 : (_focus?.row ?? 0), 0, forward: false);
+      _focusCell(
+        ctrl ? 0 : (_focus?.row ?? 0),
+        0,
+        forward: false,
+        extend: shift,
+      );
     } else if (key == LogicalKeyboardKey.end) {
       _focusCell(
         ctrl ? _rows.length - 1 : (_focus?.row ?? 0),
         _cols.length - 1,
         forward: true,
+        extend: shift,
       );
     } else if (key == LogicalKeyboardKey.pageDown) {
       paginated ? _cubit.nextPage() : _moveFocus(10, 0);
@@ -1373,11 +2100,33 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       }
     } else if (ctrl && key == LogicalKeyboardKey.keyA && widget.showSelection) {
       _cubit.toggleSelectAll(true);
+    } else if (ctrl &&
+        key == LogicalKeyboardKey.keyA &&
+        widget.enableRangeSelection &&
+        _rows.isNotEmpty &&
+        _cols.isNotEmpty) {
+      // Without row checkboxes, Ctrl + A selects every cell.
+      setState(() {
+        _anchor = (row: 0, col: 0);
+        _focus = (row: _rows.length - 1, col: _cols.length - 1);
+      });
     } else if (ctrl && key == LogicalKeyboardKey.keyC) {
       if (!_copy()) return KeyEventResult.ignored;
+    } else if (ctrl && key == LogicalKeyboardKey.keyV) {
+      if (widget.onCellEdited == null || _focus == null) {
+        return KeyEventResult.ignored;
+      }
+      unawaited(_paste());
     } else if (key == LogicalKeyboardKey.escape) {
       if (_focus == null) return KeyEventResult.ignored;
-      setState(() => _focus = null);
+      setState(() {
+        // First Escape drops the range, the next one the focused cell.
+        if (_hasRange) {
+          _anchor = null;
+        } else {
+          _focus = null;
+        }
+      });
     } else if (_focus != null && _rows.isNotEmpty) {
       final f = _focus!;
       final item = _rows[f.row].item;

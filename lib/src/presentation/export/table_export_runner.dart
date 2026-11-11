@@ -88,7 +88,11 @@ class TableExportRunner<T> {
   List<ColumnDefinition> orderedDefinitions(TableLoaded<T> state) {
     final visible = state.arrange(columns, (c) => c.definition);
     return [
-      ...visible.map((c) => c.definition),
+      // Shown by the user even when declared `isVisible: false`.
+      ...visible.map(
+        (c) =>
+            c.isVisible ? c.definition : c.definition.copyWith(isVisible: true),
+      ),
       // Hidden columns are skipped by the exporters anyway.
       ...columns.where((c) => !visible.contains(c)).map((c) => c.definition),
     ];
@@ -304,13 +308,14 @@ class TableExportRunner<T> {
     return copied.length;
   }
 
-  /// Copies one cell's text.
+  /// Copies [text] (one cell, or [count] rows of a cell range).
   Future<void> copyText(
     String text, {
     ScaffoldMessengerState? messenger,
+    int count = 1,
   }) async {
     await Clipboard.setData(ClipboardData(text: text));
-    _showSnackbar(messenger, labels.copied(1));
+    _showSnackbar(messenger, labels.copied(count));
   }
 
   void _showSnackbar(ScaffoldMessengerState? messenger, String message) {

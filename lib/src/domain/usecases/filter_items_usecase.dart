@@ -68,6 +68,7 @@ class FilterItemsUseCase {
     bool Function(T item, Map<String, dynamic> filters)? customFilterMatcher,
     Set<String> hiddenColumnIds = const {},
     Map<String, DisplayFormatter>? displayFormatters,
+    Map<String, Comparator<Object?>>? comparators,
   }) {
     Iterable<T> result = items;
 
@@ -143,30 +144,44 @@ class FilterItemsUseCase {
         ColumnSort(state.groupByColumnId!),
       ...state.sorts,
     ];
-    final extractors = <(dynamic Function(T), bool)>[
+    final extractors = <(dynamic Function(T), bool, Comparator<Object?>?)>[
       for (final level in levels)
         if (valueProviders?[level.columnId] != null)
-          (valueProviders![level.columnId]!, level.ascending),
+          (
+            valueProviders![level.columnId]!,
+            level.ascending,
+            comparators?[level.columnId],
+          ),
     ];
     if (extractors.isNotEmpty) {
       // Text is compared in its normalized form, so `أحمد` and `احمد` sort
-      // together, consistently with the search.
-      Object? sortKey(Object? v) => v is String ? textNormalizer(v) : v;
+      // together, consistently with the search. A column with its own
+      // comparator gets the raw values.
+      Object? sortKey(Object? v, bool raw) =>
+          !raw && v is String ? textNormalizer(v) : v;
       final indexed = List<(int, T, List<Object?>)>.generate(
         filtered.length,
         (i) => (
           i,
           filtered[i],
-          [for (final e in extractors) sortKey(e.$1(filtered[i]) as Object?)],
+          [
+            for (final e in extractors)
+              sortKey(e.$1(filtered[i]) as Object?, e.$3 != null),
+          ],
         ),
       );
       indexed.sort((a, b) {
         for (var l = 0; l < extractors.length; l++) {
-          final cmp = compareCellValues(
-            a.$3[l],
-            b.$3[l],
-            ascending: extractors[l].$2,
-          );
+          final custom = extractors[l].$3;
+          final x = a.$3[l];
+          final y = b.$3[l];
+          final int cmp;
+          if (custom == null || x == null || y == null) {
+            // `null` sorts last whatever the direction or comparator.
+            cmp = compareCellValues(x, y, ascending: extractors[l].$2);
+          } else {
+            cmp = extractors[l].$2 ? custom(x, y) : custom(y, x);
+          }
           if (cmp != 0) return cmp;
         }
         return a.$1.compareTo(b.$1);
@@ -276,6 +291,52 @@ class FilterItemsUseCase {
       cmp = a.toString().toLowerCase().compareTo(b.toString().toLowerCase());
     }
     return ascending ? cmp : -cmp;
+  }
+
+  /// Compares text the way people read numbers in it: `INV-9` before
+  /// `INV-10`, `v1.9` before `v1.10` (case-insensitive). Other values fall
+  /// back to [compareCellValues]. Use it as a column `comparator`.
+  static int naturalCompare(Object? a, Object? b) {
+    if (a is! String || b is! String) return compareCellValues(a, b);
+    final x = a.toLowerCase();
+    final y = b.toLowerCase();
+    var i = 0;
+    var j = 0;
+    bool digit(int c) => c >= 0x30 && c <= 0x39;
+    while (i < x.length && j < y.length) {
+      final cx = x.codeUnitAt(i);
+      final cy = y.codeUnitAt(j);
+      if (digit(cx) && digit(cy)) {
+        var si = i;
+        var sj = j;
+        while (si < x.length && x.codeUnitAt(si) == 0x30) {
+          si++;
+        }
+        while (sj < y.length && y.codeUnitAt(sj) == 0x30) {
+          sj++;
+        }
+        var ei = si;
+        var ej = sj;
+        while (ei < x.length && digit(x.codeUnitAt(ei))) {
+          ei++;
+        }
+        while (ej < y.length && digit(y.codeUnitAt(ej))) {
+          ej++;
+        }
+        // More digits (without leading zeros) = bigger number.
+        if (ei - si != ej - sj) return (ei - si).compareTo(ej - sj);
+        final cmp = x.substring(si, ei).compareTo(y.substring(sj, ej));
+        if (cmp != 0) return cmp;
+        i = ei;
+        j = ej;
+      } else {
+        if (cx != cy) return cx.compareTo(cy);
+        i++;
+        j++;
+      }
+    }
+    final rest = (x.length - i).compareTo(y.length - j);
+    return rest != 0 ? rest : a.compareTo(b);
   }
 
   static DateTime _dayOf(DateTime d) => DateTime(d.year, d.month, d.day);

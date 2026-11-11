@@ -84,13 +84,18 @@ The grid also covers the "spreadsheet" features: **frozen columns, sticky header
 | ☁️ **Server-side** | `AdaptiveTableDataSource`: search, filters, sort and paging are sent to your API. Stale responses are ignored. |
 | ✨ **Skeleton loading** | `loadingStyle: TableLoadingStyle.skeleton`: placeholder rows (cards on phones) with a shimmer that follows RTL and respects reduced motion. No extra dependency. |
 | 🕹️ **Controller** | `AdaptiveTableController` to search, filter, sort, paginate, select, export, print, copy and save / restore the layout from anywhere. |
+| 🖍️ **Search highlight** | The search text is highlighted in cells and cards, with the same Arabic-aware matching. |
+| 🔲 **Cell ranges** | Shift + arrows / Shift + click / mouse drag select cells; Ctrl + C copies them, **Ctrl + V pastes from Excel** into editable cells. |
+| ☰ **Column menu** | Right-click a header: sort, freeze, group by, auto-fit width, hide. |
+| 🧱 **Stacked headers** | `columnGroups`: a header band over several columns. |
+| ↕️ **Row drag & drop** | `onRowReorder` adds a drag handle to each row. |
 | 🔑 **Row identity** | `rowKey: (row) => row.id` keeps selected and expanded rows across immutable updates and server pages. |
 
 ## Installation
 
 ```yaml
 dependencies:
-  flutter_table_layout: ^0.2.0
+  flutter_table_layout: ^0.3.0
 ```
 
 ```bash
@@ -199,6 +204,7 @@ class InvoicesPage extends StatelessWidget {
 | `aggregate` | `null` | Footer total: `TableAggregate.sum / average / min / max / count`. See [Totals row](#totals-row-column-aggregates). |
 | `aggregator` | `null` | Custom total computed from the filtered rows (wins over `aggregate`). |
 | `aggregateFormatter` | `valueFormatter` | Formats the total. |
+| `comparator` | `null` | Custom sort order, e.g. `FilterItemsUseCase.naturalCompare` (`INV-9` before `INV-10`). `null` values always sort last. |
 
 ```dart
 AdaptiveTableColumn<Currency>(
@@ -272,6 +278,8 @@ class CurrencyFilter extends StatelessWidget {
 - Arabic text regardless of spelling variants: hamza forms (`أ إ آ` = `ا`), `ة` = `ه`, `ى` = `ي`, diacritics (tashkeel) and tatweel are ignored, and Arabic-Indic digits equal ASCII digits.
 
 <p align="center"><img src="doc/screenshots/search_arabic.png" alt="Arabic search: احمد finds أحمد" width="720"></p>
+
+Matches are **highlighted** in the cells and cards (`احمد` is highlighted inside `أَحْمَد`). Turn it off with `highlightSearchMatches: false`, or change the color with `AdaptiveTableTheme(searchHighlightColor: …)`.
 
 The same folding applies to the per-column filters and to the order of text values. To compare text differently, pass a `textNormalizer` (e.g. `TableTextNormalizer.caseInsensitive` for plain case-insensitive matching, or your own `String Function(String)`).
 
@@ -569,6 +577,49 @@ controller.setColumnWidth('notes', 300);
 controller.moveColumn('salary', beforeColumnId: 'name');
 ```
 
+### Column menu and auto-fit
+
+Right-click a column header (or use the ⋮ button that appears on hover) for **Sort ascending / descending, Clear sort, Freeze at start / end, Group by, Auto-fit width** and **Hide column**. Auto-fit sizes the column to its title and the text of the displayed rows. `showColumnMenu: false` removes the menu.
+
+### Stacked headers (column groups)
+
+```dart
+AdaptiveTableLayout<Entry>(
+  columnGroups: const [
+    TableColumnGroup(title: 'Amounts', columnIds: ['debit', 'credit', 'balance']),
+  ],
+  // …
+)
+```
+
+The band spans the member columns displayed next to each other; if the user moves a column in between, each run gets its own band.
+
+### Row drag & drop
+
+```dart
+AdaptiveTableLayout<Task>(
+  items: tasks,
+  onRowReorder: (row, before) => setState(() {
+    tasks = [...tasks]..remove(row);
+    tasks.insert(before == null ? tasks.length : tasks.indexOf(before), row);
+  }),
+)
+```
+
+Each row gets a ⠿ handle. Rows can only be moved in their own order, so the handles are disabled while the table is sorted or grouped.
+
+### Cell ranges, copy and paste
+
+Click a cell, then **Shift + arrows**, **Shift + click** or drag with the mouse to select a rectangle of cells. **Ctrl / Cmd + C** copies it as tab-separated cells.
+
+With `onCellEdited`, **Ctrl / Cmd + V** pastes cells copied from Excel or Google Sheets, starting at the top-left selected cell:
+
+- each value is converted to the column's type (numbers accept `1,250.5` and `١٢٥٠`, dates `2026-01-05`, booleans `yes / no / ✓`, dropdowns one of their options);
+- cells that are not editable (`isEditable`, `canEditCell`), values that do not fit or that `cellValidator` rejects are skipped;
+- one copied value fills the whole selected range.
+
+Give the table a `rowKey` so that several pasted cells of the same row build on each other. `enableRangeSelection: false` turns ranges off.
+
 ### Per-column filter row
 
 ```dart
@@ -667,9 +718,11 @@ Click a cell (or Tab into the rows), then:
 | Space | Select the row |
 | Home / End (+Ctrl) | First / last column (row) |
 | Page Up / Page Down | Previous / next page (10 rows without pagination) |
-| Ctrl/Cmd + A | Select all |
-| Ctrl/Cmd + C | Copy the selected rows (or the focused cell) |
-| Escape | Leave the cell |
+| Shift + arrows / Home / End | Extend the selected cell range |
+| Ctrl/Cmd + A | Select all rows (all cells without row checkboxes) |
+| Ctrl/Cmd + C | Copy the cell range, else the selected rows, else the focused cell |
+| Ctrl/Cmd + V | Paste spreadsheet cells into editable cells |
+| Escape | Drop the range, then leave the cell |
 
 Keys typed in the column filter fields, inline editors or buttons inside cells stay theirs.
 
@@ -718,6 +771,8 @@ class _InvoicesState extends State<InvoicesPage> {
 The toolbar has **Excel**, **CSV**, **Word**, **PDF** and **Print** actions. Exports:
 
 - respect the current search, filters and sort order, and end with the totals row;
+- Excel: typed cells, a frozen header row with filter buttons, right-to-left sheets (written by the package itself, no spreadsheet dependency);
+- PDF: Arabic text is shaped in both left-to-right and right-to-left documents;
 - export **only the selected rows** when some are selected (`exportSelectedWhenAny`);
 - skip hidden columns and columns with `isExportable: false`;
 - escape HTML in the Word output, neutralize spreadsheet formulas in CSV text cells (`=`, `+`, `-`, `@`), and use safe file and sheet names, including Arabic titles;
@@ -930,13 +985,18 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | Column totals row (in exports too) | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Copy rows to the clipboard | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Save / restore the user's layout | ✅ | 🟡 | 🟡 | ❌ | ❌ |
+| Cell range selection + paste from Excel | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Column header menu, auto-fit width | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Stacked (multi-level) headers | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Row drag & drop | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Highlighted search matches | ✅ | ❌ | 🟡 | ❌ | ❌ |
 | Arabic-aware search (hamza, tashkeel, digits) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Ready-made themes | ✅ 7 | ✅ | ✅ | 🟡 | 🟡 |
 | External controller | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 
 **Where this package is stronger:** it's the only one that turns into cards on phones automatically, it ships Arabic out of the box, exports to Excel, Word and PDF and prints without add-ons, and generates CRUD forms from your columns. All of that sits in one MIT-licensed widget, with the same API on phone, tablet, desktop and web.
 
-**Where the others are still ahead:** pasting from the clipboard, multi-cell range selection, row drag & drop, stacked (multi-level) headers, tree data, and cell merging. These are not implemented here yet.
+**Where the others are still ahead:** tree data and cell merging are not implemented here yet, and stacked headers have one level.
 
 ## API reference
 
@@ -978,6 +1038,11 @@ Main theme properties: `cardBackgroundColor`, `borderRadius`, `cardBorder`, `car
 | `showColumnFilters` | `bool` | `false` | Filter row under the header. |
 | `allowColumnResize` / `allowColumnReorder` | `bool` | `true` / `true` | Column layout by the user. |
 | `enableKeyboardNavigation` | `bool` | `true` | Keyboard control of the grid. |
+| `enableRangeSelection` | `bool` | `true` | Cell ranges, range copy and paste. |
+| `showColumnMenu` | `bool` | `true` | Right-click / ⋮ menu on column headers. |
+| `columnGroups` | `List<TableColumnGroup>` | `[]` | Stacked header bands. |
+| `onRowReorder` | `void Function(T row, T? before)?` | `null` | Row drag & drop. |
+| `highlightSearchMatches` | `bool` | `true` | Highlight the search text in cells and cards. |
 | `groupByColumnId` / `groupHeaderBuilder` | | `null` | Row grouping and group aggregates. |
 | `onCellEdited` / `canEditCell` | callbacks | `null` | Inline editing and per-cell permission. |
 | `minRowHeight` | `double` | `0` | Minimum desktop row height. |
@@ -1098,6 +1163,12 @@ AdaptiveTableLayout<Transaction>(
 | هوية الصفوف | `rowKey: (r) => r.id` ليبقى التحديد بعد تحديث البيانات |
 | التعديل المباشر | `isEditable: true` في العمود + `onCellEdited` + `canEditCell` للصلاحيات |
 | لوحة المفاتيح | الأسهم وEnter وTab وEsc وSpace وCtrl + C |
+| تحديد نطاق خلايا ونسخ ولصق | Shift + الأسهم أو السحب بالماوس، ثم Ctrl + C، و**Ctrl + V للّصق من Excel** في الخلايا القابلة للتعديل |
+| قائمة العمود | نقر يمين على رأس العمود: ترتيب، تثبيت، تجميع، ملاءمة العرض، إخفاء |
+| رؤوس متعددة المستويات | `columnGroups: [TableColumnGroup(title: 'المبالغ', columnIds: ['debit', 'credit'])]` |
+| سحب الصفوف لإعادة ترتيبها | `onRowReorder: (row, before) { ... }` |
+| تمييز نتائج البحث | تلقائي، ويفهم العربية (`highlightSearchMatches`) |
+| ترتيب مخصص للعمود | `comparator: FilterItemsUseCase.naturalCompare` |
 | بيانات من السيرفر | `dataSource: AdaptiveTableDataSource.fromCallback((q) async => ...)` |
 | هيكل تحميل (Skeleton / Shimmer) | `loadingStyle: TableLoadingStyle.skeleton` مع `isLoading`، والألوان من `skeletonBaseColor` و`skeletonHighlightColor` في الثيم |
 

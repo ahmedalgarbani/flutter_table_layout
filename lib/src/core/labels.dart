@@ -76,12 +76,26 @@ class AdaptiveTableLabels {
   final String allRows;
   final String save;
   final String noMatches;
+  final String sortAscending;
+  final String sortDescending;
+  final String clearSort;
+  final String hideColumn;
+  final String autoFitColumn;
+  final String columnMenu;
+  final String reorderRow;
+  final String reorderUnavailable;
+
+  /// `"Group by Department"`.
+  final String Function(String column) groupByColumn;
 
   /// Placeholder of an empty selector: `"Select Currency…"`.
   final String Function(String field) selectPlaceholder;
 
   /// Snackbar after a copy: `"Copied to clipboard"` / `"3 rows copied"`.
   final String Function(int rows) copied;
+
+  /// Snackbar after a paste: `"3 cells pasted"`.
+  final String Function(int cells) pasted;
 
   /// `"Page 2 of 5 (48 items)"`.
   final String Function(int page, int totalPages, int totalItems) pageStatus;
@@ -169,8 +183,18 @@ class AdaptiveTableLabels {
     this.allRows = 'All',
     this.save = 'Save',
     this.noMatches = 'No items found',
+    this.sortAscending = 'Sort ascending',
+    this.sortDescending = 'Sort descending',
+    this.clearSort = 'Clear sort',
+    this.hideColumn = 'Hide column',
+    this.autoFitColumn = 'Auto-fit width',
+    this.columnMenu = 'Column options',
+    this.reorderRow = 'Drag to reorder',
+    this.reorderUnavailable = 'Clear the sort and grouping to reorder rows',
+    this.groupByColumn = _enGroupByColumn,
     this.selectPlaceholder = _enSelectPlaceholder,
     this.copied = _enCopied,
+    this.pasted = _enPasted,
     required this.pageStatus,
     required this.rangeStatus,
     required this.selectedCount,
@@ -330,8 +354,18 @@ class AdaptiveTableLabels {
     allRows: 'الكل',
     save: 'حفظ',
     noMatches: 'لا توجد عناصر',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    clearSort: 'إلغاء الترتيب',
+    hideColumn: 'إخفاء العمود',
+    autoFitColumn: 'ملاءمة العرض تلقائياً',
+    columnMenu: 'خيارات العمود',
+    reorderRow: 'اسحب لإعادة الترتيب',
+    reorderUnavailable: 'ألغِ الترتيب والتجميع لإعادة ترتيب الصفوف',
+    groupByColumn: _arGroupByColumn,
     selectPlaceholder: _arSelectPlaceholder,
     copied: _arCopied,
+    pasted: _arPasted,
     pageStatus: _arPageStatus,
     rangeStatus: _arRangeStatus,
     selectedCount: _arSelectedCount,
@@ -421,8 +455,18 @@ class AdaptiveTableLabels {
     String? allRows,
     String? save,
     String? noMatches,
+    String? sortAscending,
+    String? sortDescending,
+    String? clearSort,
+    String? hideColumn,
+    String? autoFitColumn,
+    String? columnMenu,
+    String? reorderRow,
+    String? reorderUnavailable,
+    String Function(String column)? groupByColumn,
     String Function(String field)? selectPlaceholder,
     String Function(int rows)? copied,
+    String Function(int cells)? pasted,
     String Function(int page, int totalPages, int totalItems)? pageStatus,
     String Function(int from, int to, int total)? rangeStatus,
     String Function(int count)? selectedCount,
@@ -499,8 +543,18 @@ class AdaptiveTableLabels {
       allRows: allRows ?? this.allRows,
       save: save ?? this.save,
       noMatches: noMatches ?? this.noMatches,
+      sortAscending: sortAscending ?? this.sortAscending,
+      sortDescending: sortDescending ?? this.sortDescending,
+      clearSort: clearSort ?? this.clearSort,
+      hideColumn: hideColumn ?? this.hideColumn,
+      autoFitColumn: autoFitColumn ?? this.autoFitColumn,
+      columnMenu: columnMenu ?? this.columnMenu,
+      reorderRow: reorderRow ?? this.reorderRow,
+      reorderUnavailable: reorderUnavailable ?? this.reorderUnavailable,
+      groupByColumn: groupByColumn ?? this.groupByColumn,
       selectPlaceholder: selectPlaceholder ?? this.selectPlaceholder,
       copied: copied ?? this.copied,
+      pasted: pasted ?? this.pasted,
       pageStatus: pageStatus ?? this.pageStatus,
       rangeStatus: rangeStatus ?? this.rangeStatus,
       selectedCount: selectedCount ?? this.selectedCount,
@@ -518,6 +572,13 @@ String _enSelectedCount(int count) => '$count selected';
 String _enExportFailed(String format, Object error) =>
     '$format export failed: $error';
 String _enSavedTo(String path) => 'Saved to $path';
+String _enPasted(int cells) => cells == 0
+    ? 'Nothing to paste here'
+    : (cells == 1 ? '1 cell pasted' : '$cells cells pasted');
+String _arPasted(int cells) =>
+    cells == 0 ? 'لا يوجد ما يمكن لصقه هنا' : 'تم لصق الخلايا: $cells';
+String _enGroupByColumn(String column) => 'Group by $column';
+String _arGroupByColumn(String column) => 'تجميع حسب $column';
 String _enSelectPlaceholder(String field) => 'Select $field…';
 String _enCopied(int rows) =>
     rows <= 1 ? 'Copied to clipboard' : '$rows rows copied';
