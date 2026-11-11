@@ -1,6 +1,6 @@
 name: flutter_table_layout
 description: Responsive data table for Flutter with frozen columns, totals, Arabic-aware search, filtering, grouping, editing, and Excel/CSV/PDF export for mobile, web, and desktop.
-version: 0.2.0
+version: 0.3.0
 homepage: https://github.com/ahmedalgarbani/flutter_table_layout
 repository: https://github.com/ahmedalgarbani/flutter_table_layout
 issue_tracker: https://github.com/ahmedalgarbani/flutter_table_layout/issues

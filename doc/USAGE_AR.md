@@ -219,6 +219,60 @@ AdaptiveTableLayout<Employee>(
 
 للتعطيل: `enableKeyboardNavigation: false`.
 
+### تحديد نطاق من الخلايا والنسخ واللصق من Excel
+
+- انقر خلية ثم **Shift + الأسهم**، أو **Shift + نقر**، أو اسحب بالماوس لتحديد مستطيل من الخلايا.
+- **Ctrl + C** ينسخ النطاق لتلصقه في Excel أو Google Sheets.
+- **Ctrl + V** يلصق خلايا منسوخة من Excel في الخلايا **القابلة للتعديل** ابتداءً من أول خلية محددة (يحتاج `onCellEdited`):
+  - القيمة تُحوَّل لنوع العمود: الأرقام تقبل `1,250.5` و`١٢٥٠`، والتواريخ `2026-01-05`، ونعم/لا `نعم / لا / ✓`، والقائمة المنسدلة أحد خياراتها.
+  - الخلايا غير القابلة للتعديل، والقيم غير المناسبة أو التي يرفضها `cellValidator` تُتجاوَز.
+  - قيمة واحدة منسوخة تملأ كل النطاق المحدد.
+- استخدم `rowKey` ليُبنى كل تعديل في الصف نفسه على الذي قبله.
+- للإيقاف: `enableRangeSelection: false`.
+
+### قائمة العمود وملاءمة العرض
+
+انقر بالزر الأيمن على رأس أي عمود (أو زر ⋮ الذي يظهر عند مرور الماوس): ترتيب تصاعدي / تنازلي، إلغاء الترتيب، تثبيت في البداية / النهاية، تجميع حسب العمود، **ملاءمة العرض تلقائياً**، إخفاء العمود. للإيقاف: `showColumnMenu: false`.
+
+### رؤوس متعددة المستويات
+
+```dart
+AdaptiveTableLayout<Entry>(
+  columnGroups: const [
+    TableColumnGroup(title: 'المبالغ', columnIds: ['debit', 'credit', 'balance']),
+  ],
+  // …
+)
+```
+
+### سحب الصفوف لإعادة ترتيبها
+
+```dart
+AdaptiveTableLayout<Task>(
+  items: tasks,
+  onRowReorder: (row, before) => setState(() {
+    tasks = [...tasks]..remove(row);
+    tasks.insert(before == null ? tasks.length : tasks.indexOf(before), row);
+  }),
+)
+```
+
+يظهر مقبض ⠿ في بداية كل صف، ويتعطل أثناء الفرز أو التجميع.
+
+### ترتيب مخصص للعمود
+
+```dart
+AdaptiveTableColumn(
+  id: 'invoiceNo',
+  title: 'رقم الفاتورة',
+  comparator: FilterItemsUseCase.naturalCompare, // INV-9 قبل INV-10
+)
+```
+
+### تمييز نتائج البحث
+
+نص البحث يُظلَّل داخل الخلايا والبطاقات بنفس قواعد البحث العربي (`احمد` يُظلَّل داخل `أَحْمَد`). للإيقاف: `highlightSearchMatches: false`، ولتغيير اللون: `AdaptiveTableTheme(searchHighlightColor: ...)`.
+
 ### البيانات من السيرفر
 ```dart
 // أنشئه مرة واحدة (في initState أو كحقل late final)، وليس داخل build
