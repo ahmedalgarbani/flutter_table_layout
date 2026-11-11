@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -43,6 +44,7 @@ class TableGrid<T> extends StatefulWidget {
   final bool allowColumnReorder;
   final bool showColumnMenu;
   final bool enableKeyboardNavigation;
+  final bool enableRangeSelection;
   final bool tristateSort;
   final CellEditCallback<T>? onCellEdited;
   final CanEditCell<T>? canEditCell;
@@ -68,6 +70,7 @@ class TableGrid<T> extends StatefulWidget {
     this.allowColumnReorder = true,
     this.showColumnMenu = true,
     this.enableKeyboardNavigation = true,
+    this.enableRangeSelection = true,
     this.tristateSort = false,
     this.onCellEdited,
     this.canEditCell,
@@ -82,6 +85,11 @@ class TableGrid<T> extends StatefulWidget {
   static const double selectionColumnWidth = 48;
   static const double expandColumnWidth = 44;
   static const double minFlexColumnWidth = 80;
+
+  /// Splits spreadsheet clipboard text into rows of cells (tab-separated,
+  /// with `"quoted"` cells that may hold tabs, line breaks and `""`).
+  static List<List<String>> parseClipboard(String text) =>
+      _TableGridState.parseClipboard(text);
 
   @override
   State<TableGrid<T>> createState() => _TableGridState<T>();
@@ -110,6 +118,38 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
   /// Focused cell: index among displayed rows / among visible columns.
   ({int row, int col})? _focus;
+
+  /// The other corner of the selected cell range (`null` = only [_focus]).
+  ({int row, int col})? _anchor;
+  bool _dragSelecting = false;
+  bool _pasting = false;
+
+  /// The selected rectangle of cells, or `null` without a focused cell.
+  ({int top, int left, int bottom, int right})? get _range {
+    final f = _focus;
+    if (f == null) return null;
+    final a = _anchor ?? f;
+    return (
+      top: math.min(a.row, f.row),
+      left: math.min(a.col, f.col),
+      bottom: math.max(a.row, f.row),
+      right: math.max(a.col, f.col),
+    );
+  }
+
+  bool get _hasRange {
+    final r = _range;
+    return r != null && (r.top != r.bottom || r.left != r.right);
+  }
+
+  bool _inRange(int row, int col) {
+    final r = _range;
+    return r != null &&
+        row >= r.top &&
+        row <= r.bottom &&
+        col >= r.left &&
+        col <= r.right;
+  }
 
   // Snapshot of the last build, used by the keyboard handler.
   List<RowEntry<T>> _rows = const [];
@@ -216,6 +256,12 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     if (_focus != null &&
         (_focus!.row >= _rows.length || _focus!.col >= cols.length)) {
       _focus = null;
+    }
+    if (_anchor != null &&
+        (_focus == null ||
+            _anchor!.row >= _rows.length ||
+            _anchor!.col >= cols.length)) {
+      _anchor = null;
     }
     final direction = Directionality.of(context);
 
@@ -1237,16 +1283,42 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           // A dropdown editor has no "tap outside" of its own: clicking
           // another cell closes it.
           if (!editing && _editing != null && _editingDropdown) _cancelEdit();
-          if (_focus?.row != rowIndex || _focus?.col != colIndex) {
-            setState(() => _focus = (row: rowIndex, col: colIndex));
+          final shift = HardwareKeyboard.instance.isShiftPressed;
+          final next = (row: rowIndex, col: colIndex);
+          final anchor = shift ? (_anchor ?? _focus) : null;
+          if (_focus != next || _anchor != anchor) {
+            setState(() {
+              _focus = next;
+              _anchor = anchor == next ? null : anchor;
+            });
           }
+          _dragSelecting = widget.enableRangeSelection && !editing;
           if (!editing) _focusNode.requestFocus();
         },
+        onPointerUp: (_) => _dragSelecting = false,
+        onPointerCancel: (_) => _dragSelecting = false,
         child: child,
       );
+      if (widget.enableRangeSelection) {
+        // Dragging with the mouse over other cells extends the range.
+        child = MouseRegion(
+          opaque: false,
+          onEnter: (event) {
+            if (!_dragSelecting || event.buttons & kPrimaryButton == 0) return;
+            final f = _focus;
+            if (f == null || (f.row == rowIndex && f.col == colIndex)) return;
+            setState(() {
+              _anchor ??= f;
+              _focus = (row: rowIndex, col: colIndex);
+            });
+          },
+          child: child,
+        );
+      }
       // The wrapper is always present (only its border changes) so that the
       // cell subtree, and its double-tap recognizer, survive focus changes.
       final focused = _focus?.row == rowIndex && _focus?.col == colIndex;
+      final ranged = _hasRange && _inRange(rowIndex, colIndex);
       final inner = child;
       child = Builder(
         builder: (cellContext) {
@@ -1254,6 +1326,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
           return DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
+              color: ranged ? theme.accentColor.withValues(alpha: 0.14) : null,
               border: Border.all(
                 color: focused && (_focusNode.hasFocus || editing)
                     ? theme.accentColor
@@ -1453,13 +1526,21 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     int col, {
     required bool forward,
     bool startEditing = false,
+    bool extend = false,
   }) {
     if (_rows.isEmpty || _cols.isEmpty) return;
     final next = (
       row: row.clamp(0, _rows.length - 1),
       col: col.clamp(0, _cols.length - 1),
     );
-    setState(() => _focus = next);
+    setState(() {
+      // Shift keeps the other corner of the range where the focus was.
+      _anchor = extend && widget.enableRangeSelection
+          ? (_anchor ?? _focus)
+          : null;
+      if (_anchor == next) _anchor = null;
+      _focus = next;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _focusedCellContext;
       if (ctx != null && ctx.mounted) {
@@ -1481,7 +1562,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
 
   /// Moves the focus by [dRow] / [dCol]. The first move focuses the first
   /// cell.
-  void _moveFocus(int dRow, int dCol) {
+  void _moveFocus(int dRow, int dCol, {bool extend = false}) {
     final current = _focus;
     if (current == null) {
       _focusCell(0, 0, forward: true);
@@ -1491,6 +1572,7 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       current.row + dRow,
       current.col + dCol,
       forward: dRow > 0 || dCol > 0,
+      extend: extend,
     );
   }
 
@@ -1508,7 +1590,10 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final index =
         current.row * _cols.length + current.col + (backwards ? -1 : 1);
     if (index < 0 || index >= _rows.length * _cols.length) {
-      setState(() => _focus = null);
+      setState(() {
+        _focus = null;
+        _anchor = null;
+      });
       return false;
     }
     _focusCell(
@@ -1526,6 +1611,26 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     if (runner == null) return false;
     final state = widget.state;
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final range = _range;
+    if (range != null && _hasRange) {
+      // The selected cells, as displayed, tab-separated like a spreadsheet.
+      String clean(String s) => s.replaceAll(RegExp(r'[\t\r\n]+'), ' ');
+      final text = [
+        for (var r = range.top; r <= range.bottom; r++)
+          [
+            for (var c = range.left; c <= range.right; c++)
+              clean(widget.renderer.textFor(_cols[c], _rows[r].item)),
+          ].join('\t'),
+      ].join('\n');
+      unawaited(
+        runner.copyText(
+          text,
+          messenger: messenger,
+          count: range.bottom - range.top + 1,
+        ),
+      );
+      return true;
+    }
     if (state.selectedItems.isNotEmpty) {
       unawaited(
         runner.copyRows(
@@ -1541,6 +1646,152 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final text = widget.renderer.textFor(_cols[f.col], _rows[f.row].item);
     unawaited(runner.copyText(text, messenger: messenger));
     return true;
+  }
+
+  /// Splits spreadsheet clipboard text into rows of cells (tab-separated,
+  /// with `"quoted"` cells that may hold tabs, line breaks and `""`).
+  static List<List<String>> parseClipboard(String text) {
+    final rows = <List<String>>[];
+    var row = <String>[];
+    final cell = StringBuffer();
+    var quoted = false;
+    var cellStart = true;
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      if (quoted) {
+        if (ch == '"') {
+          if (i + 1 < text.length && text[i + 1] == '"') {
+            cell.write('"');
+            i++;
+          } else {
+            quoted = false;
+          }
+        } else {
+          cell.write(ch);
+        }
+      } else if (ch == '"' && cellStart) {
+        quoted = true;
+        cellStart = false;
+      } else if (ch == '\t') {
+        row.add(cell.toString());
+        cell.clear();
+        cellStart = true;
+      } else if (ch == '\n' || ch == '\r') {
+        if (ch == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;
+        row.add(cell.toString());
+        cell.clear();
+        rows.add(row);
+        row = <String>[];
+        cellStart = true;
+      } else {
+        cell.write(ch);
+        cellStart = false;
+      }
+    }
+    if (cell.isNotEmpty || row.isNotEmpty) {
+      row.add(cell.toString());
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  static const _noValue = Object();
+
+  /// Converts pasted [text] to the type [col] edits, or [_noValue] when it
+  /// does not fit (e.g. letters pasted into a number column).
+  Object? _coerce(AdaptiveTableColumn<T> col, T item, String text) {
+    final current = widget.renderer.rawValue(col, item);
+    final editor = col.editor ?? CellEditor.infer(current);
+    final t = text.trim();
+    switch (editor.type) {
+      case CellEditorType.text:
+        return text;
+      case CellEditorType.number:
+        if (t.isEmpty) return null;
+        final ascii = TableTextNormalizer.digitsToAscii(t);
+        return num.tryParse(ascii) ??
+            num.tryParse(ascii.replaceAll(',', '')) ??
+            _noValue;
+      case CellEditorType.boolean:
+        return switch (t.toLowerCase()) {
+          'true' || 'yes' || '1' || '✓' || 'نعم' => true,
+          'false' || 'no' || '0' || '✗' || 'لا' => false,
+          _ => _noValue,
+        };
+      case CellEditorType.date:
+        return TableTextNormalizer.tryParseDay(t) ??
+            DateTime.tryParse(t) ??
+            _noValue;
+      case CellEditorType.dropdown:
+        final label = editor.optionLabel ?? ExportUtils.formatValue;
+        for (final option in editor.options) {
+          if (label(option) == t || '$option' == t) return option;
+        }
+        return _noValue;
+    }
+  }
+
+  /// Ctrl / Cmd + V: writes the clipboard's cells into the editable cells
+  /// starting at the top-left of the selection (one copied value fills the
+  /// whole selected range). Cells that are not editable, or whose value
+  /// does not fit or is rejected, are skipped.
+  Future<void> _paste() async {
+    final onEdit = widget.onCellEdited;
+    final start = _range;
+    if (onEdit == null || start == null || _pasting) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (!mounted || text == null || text.isEmpty) return;
+    final cells = parseClipboard(text);
+    if (cells.isEmpty) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final single = cells.length == 1 && cells.first.length == 1;
+    final height = single ? start.bottom - start.top + 1 : cells.length;
+    _pasting = true;
+    var written = 0;
+    try {
+      for (var dr = 0; dr < height; dr++) {
+        final source = single ? cells.first : cells[dr];
+        final width = single ? start.right - start.left + 1 : source.length;
+        var rowEdited = false;
+        for (var dc = 0; dc < width; dc++) {
+          final r = start.top + dr;
+          final c = start.left + dc;
+          if (r >= _rows.length || c >= _cols.length) continue;
+          if (rowEdited) {
+            // The app usually replaced the row by a new instance: wait for
+            // the rebuild so the next cell edits the fresh one.
+            await WidgetsBinding.instance.endOfFrame;
+            await WidgetsBinding.instance.endOfFrame;
+            if (!mounted || r >= _rows.length || c >= _cols.length) return;
+          }
+          final item = _rows[r].item;
+          final col = _cols[c];
+          if (!_canEdit(item, col)) continue;
+          final value = _coerce(col, item, single ? source.first : source[dc]);
+          if (identical(value, _noValue)) continue;
+          if (col.cellValidator?.call(value) != null) continue;
+          if (widget.renderer.rawValue(col, item) == value) continue;
+          try {
+            final ok = await onEdit(item, col.id, value);
+            if (!mounted) return;
+            if (ok == false) continue;
+          } catch (_) {
+            if (!mounted) return;
+            continue;
+          }
+          written++;
+          rowEdited = true;
+        }
+      }
+    } finally {
+      _pasting = false;
+    }
+    if (messenger != null && messenger.mounted) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(labels.pasted(written))));
+    }
   }
 
   /// Reaching the rows with Tab shows the first cell as focused.
@@ -1567,22 +1818,29 @@ class _TableGridState<T> extends State<TableGrid<T>> {
     final keyboard = HardwareKeyboard.instance;
     final ctrl = keyboard.isControlPressed || keyboard.isMetaPressed;
     final paginated = widget.state.tableState.isPaginated;
+    final shift = keyboard.isShiftPressed;
 
     if (key == LogicalKeyboardKey.arrowDown) {
-      _moveFocus(1, 0);
+      _moveFocus(1, 0, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowUp) {
-      _moveFocus(-1, 0);
+      _moveFocus(-1, 0, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowRight) {
-      _moveFocus(0, rtl ? -1 : 1);
+      _moveFocus(0, rtl ? -1 : 1, extend: shift);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
-      _moveFocus(0, rtl ? 1 : -1);
+      _moveFocus(0, rtl ? 1 : -1, extend: shift);
     } else if (key == LogicalKeyboardKey.home) {
-      _focusCell(ctrl ? 0 : (_focus?.row ?? 0), 0, forward: false);
+      _focusCell(
+        ctrl ? 0 : (_focus?.row ?? 0),
+        0,
+        forward: false,
+        extend: shift,
+      );
     } else if (key == LogicalKeyboardKey.end) {
       _focusCell(
         ctrl ? _rows.length - 1 : (_focus?.row ?? 0),
         _cols.length - 1,
         forward: true,
+        extend: shift,
       );
     } else if (key == LogicalKeyboardKey.pageDown) {
       paginated ? _cubit.nextPage() : _moveFocus(10, 0);
@@ -1594,11 +1852,33 @@ class _TableGridState<T> extends State<TableGrid<T>> {
       }
     } else if (ctrl && key == LogicalKeyboardKey.keyA && widget.showSelection) {
       _cubit.toggleSelectAll(true);
+    } else if (ctrl &&
+        key == LogicalKeyboardKey.keyA &&
+        widget.enableRangeSelection &&
+        _rows.isNotEmpty &&
+        _cols.isNotEmpty) {
+      // Without row checkboxes, Ctrl + A selects every cell.
+      setState(() {
+        _anchor = (row: 0, col: 0);
+        _focus = (row: _rows.length - 1, col: _cols.length - 1);
+      });
     } else if (ctrl && key == LogicalKeyboardKey.keyC) {
       if (!_copy()) return KeyEventResult.ignored;
+    } else if (ctrl && key == LogicalKeyboardKey.keyV) {
+      if (widget.onCellEdited == null || _focus == null) {
+        return KeyEventResult.ignored;
+      }
+      unawaited(_paste());
     } else if (key == LogicalKeyboardKey.escape) {
       if (_focus == null) return KeyEventResult.ignored;
-      setState(() => _focus = null);
+      setState(() {
+        // First Escape drops the range, the next one the focused cell.
+        if (_hasRange) {
+          _anchor = null;
+        } else {
+          _focus = null;
+        }
+      });
     } else if (_focus != null && _rows.isNotEmpty) {
       final f = _focus!;
       final item = _rows[f.row].item;

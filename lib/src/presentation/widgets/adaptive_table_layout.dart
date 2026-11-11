@@ -244,6 +244,12 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
   /// auto-fit the width and hide the column (desktop grid).
   final bool showColumnMenu;
 
+  /// Lets users select a rectangle of cells (Shift + arrows, Shift + click
+  /// or a mouse drag), copy it with Ctrl / Cmd + C and, with [onCellEdited],
+  /// paste spreadsheet cells into editable cells with Ctrl / Cmd + V.
+  /// Needs [enableKeyboardNavigation] (desktop grid).
+  final bool enableRangeSelection;
+
   /// Arrow keys, Enter / F2 (edit), Space (select), Tab, Home / End,
   /// Page Up / Down, Ctrl + A (select all), Ctrl + C (copy), Escape
   /// (desktop grid).
@@ -403,6 +409,7 @@ class AdaptiveTableLayout<T> extends StatefulWidget {
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
     this.showColumnMenu = true,
+    this.enableRangeSelection = true,
     this.enableKeyboardNavigation = true,
     this.groupByColumnId,
     this.groupHeaderBuilder,
@@ -703,6 +710,7 @@ class _AdaptiveTableLayoutState<T> extends State<AdaptiveTableLayout<T>> {
       allowColumnResize: widget.allowColumnResize,
       allowColumnReorder: widget.allowColumnReorder,
       showColumnMenu: widget.showColumnMenu,
+      enableRangeSelection: widget.enableRangeSelection,
       enableKeyboardNavigation: widget.enableKeyboardNavigation,
       tristateSort: widget.tristateSort,
       showCardSortBar: widget.showCardSortBar,

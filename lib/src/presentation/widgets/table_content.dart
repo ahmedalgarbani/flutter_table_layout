@@ -38,6 +38,7 @@ class TableContent<T> extends StatelessWidget {
   final bool allowColumnResize;
   final bool allowColumnReorder;
   final bool showColumnMenu;
+  final bool enableRangeSelection;
   final bool enableKeyboardNavigation;
   final bool tristateSort;
   final bool showCardSortBar;
@@ -73,6 +74,7 @@ class TableContent<T> extends StatelessWidget {
     this.allowColumnResize = true,
     this.allowColumnReorder = true,
     this.showColumnMenu = true,
+    this.enableRangeSelection = true,
     this.enableKeyboardNavigation = true,
     this.tristateSort = false,
     this.showCardSortBar = true,
@@ -142,6 +144,7 @@ class TableContent<T> extends StatelessWidget {
               allowColumnResize: allowColumnResize,
               allowColumnReorder: allowColumnReorder,
               showColumnMenu: showColumnMenu,
+              enableRangeSelection: enableRangeSelection,
               enableKeyboardNavigation: enableKeyboardNavigation,
               tristateSort: tristateSort,
               onCellEdited: onCellEdited,

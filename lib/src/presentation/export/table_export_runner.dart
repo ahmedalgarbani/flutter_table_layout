@@ -308,13 +308,14 @@ class TableExportRunner<T> {
     return copied.length;
   }
 
-  /// Copies one cell's text.
+  /// Copies [text] (one cell, or [count] rows of a cell range).
   Future<void> copyText(
     String text, {
     ScaffoldMessengerState? messenger,
+    int count = 1,
   }) async {
     await Clipboard.setData(ClipboardData(text: text));
-    _showSnackbar(messenger, labels.copied(1));
+    _showSnackbar(messenger, labels.copied(count));
   }
 
   void _showSnackbar(ScaffoldMessengerState? messenger, String message) {
